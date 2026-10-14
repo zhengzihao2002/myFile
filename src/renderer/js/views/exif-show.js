@@ -146,7 +146,7 @@
       }
 
       function showImage(url) {
-        replace(stageView, h("img", { src: url, alt: "", draggable: false }));
+        replace(stageView, h("div.fit", h("img", { src: url, alt: "", draggable: false })));
       }
 
       async function renderPreview(result, token) {
@@ -158,10 +158,10 @@
             const poster = await api.run("exif.poster", { path: result.path }).catch(() => null);
             if (token !== loadToken) return;
             if (poster && poster.url) {
-              replace(stageView, h("div", { style: { textAlign: "center" } }, h("img", { src: poster.url, alt: "" }), h("p.muted.small", "This video's format can't play here; showing a still frame.")));
+              replace(stageView, h("div.fit.with-note", h("img", { src: poster.url, alt: "" }), h("p.muted.small", { style: { margin: "0" } }, "This video's format can't play here; showing a still frame.")));
             } else replace(stageView, MF.Empty({ iconName: "video", title: "Can't play this video here", text: "Open it in QuickTime Player to watch it. All of its metadata is on the right." }));
           });
-          replace(stageView, video);
+          replace(stageView, h("div.fit", video));
           return;
         }
         if (p.type === "pending") {
@@ -178,19 +178,28 @@
       function dateCard(r) {
         const t = r.taken;
         const w = t ? parseWall(t.text) : null;
+        const fileRow = (k, v, note) => h("div.kvr", h("div.k", k, h("span.tag-src", note)), h("div.v.selectable", v));
         return h(
           "div.kv",
-          h("div.kvh", icon("calendar"), "Dates", h("div.right", t ? MF.Button("Use for file dates", { size: "sm", onClick: () => MF.go("exif-modify", { mode: "self", paths: [r.path] }) }) : null)),
+          h("div.kvh", icon("calendar"), "Dates", h("div.right", t ? MF.Button("Use for file dates", { size: "sm", title: "Set this file's Created and Modified dates to its EXIF date", onClick: () => MF.go("exif-modify", { mode: "self", paths: [r.path] }) }) : null)),
+          // The date stored inside the photo or video itself.
+          h("div.date-label", "EXIF date", h("span.badge.accent", "inside the file")),
           w
             ? h(
                 "div.big-date",
                 h("div.cal", h("div.mo", MONTHS[w.mo - 1]), h("div.dy", String(w.d))),
-                h("div", h("div.when", `${w.y}-${String(w.mo).padStart(2, "0")}-${String(w.d).padStart(2, "0")}  ${w.hh}:${w.mm}:${w.ss}`), h("div.tz", t.offset ? `Time zone ${t.offset} · ${t.source}` : `No time zone stored · ${t.source}`)),
+                h(
+                  "div",
+                  h("div.when", `${w.y}-${String(w.mo).padStart(2, "0")}-${String(w.d).padStart(2, "0")}  ${w.hh}:${w.mm}:${w.ss}`),
+                  h("div.tz", `${t.offset ? `Time zone ${t.offset}` : "No time zone stored"} · from ${t.source}`),
+                ),
               )
-            : h("div.kvr", h("div.k", "Taken"), h("div.v.muted", "No date in the metadata")),
-          kvRow("Created", fmt.date(r.times.createdMs), h("span.src", "file system (what Finder shows)")),
-          kvRow("Modified", fmt.date(r.times.modifiedMs)),
-          kvRow("Accessed", fmt.date(r.times.accessedMs)),
+            : h("div.big-date", h("div.muted", "This file has no EXIF date.")),
+          // The dates the file system keeps, which Finder shows.
+          h("div.date-label", { style: { color: "var(--muted)", paddingBottom: "6px", borderTop: "1px solid var(--line)", marginTop: "2px" } }, "File dates", h("span.badge", "what Finder shows")),
+          fileRow("Created", fmt.date(r.times.createdMs), "file system"),
+          fileRow("Modified", fmt.date(r.times.modifiedMs), "file system"),
+          fileRow("Accessed", fmt.date(r.times.accessedMs), "file system"),
         );
       }
 

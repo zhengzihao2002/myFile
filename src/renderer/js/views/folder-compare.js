@@ -35,15 +35,23 @@
         },
         icon("swap"),
       );
+      // What each content check does, shown under the choice.
+      const MODES = {
+        smart: { label: "Smart", hint: "recommended", text: [h("b", "Same size and same modified date"), " count as identical. If the size matches but the date doesn't, both files are read to be sure."] },
+        thorough: { label: "Every byte", hint: "slowest", text: [h("b", "Reads every pair of same-size files"), " and compares them byte by byte. The most certain, and the slowest on big folders."] },
+        size: { label: "Size only", hint: "fastest", text: [h("b", "Same size counts as identical"), "; nothing is read. Fastest, but an edit that keeps the size (like a changed EXIF date) is missed."] },
+      };
+      const modeHelp = h("div.mode-help");
+      const showHelp = (v) => replace(modeHelp, icon("info"), h("span", ...MODES[v].text));
       const modeSeg = MF.Segmented({
         value: content,
-        options: [
-          { value: "smart", label: "Smart", title: "Same size and date counts as identical; same size but different date is read byte by byte" },
-          { value: "thorough", label: "Every byte", title: "Read and compare every file that has the same size (slowest, most certain)" },
-          { value: "size", label: "Size only", title: "Same size counts as identical (fastest)" },
-        ],
-        onChange: (v) => (content = v),
+        options: Object.entries(MODES).map(([value, m]) => ({ value, label: `${m.label} · ${m.hint}` })),
+        onChange: (v) => {
+          content = v;
+          showHelp(v);
+        },
       });
+      showHelp(content);
       const sysOpt = MF.Option({ title: "Include system files", desc: ".DS_Store, Thumbs.db and similar", checked: includeAll, onChange: (v) => (includeAll = v) });
       sysOpt.el.style.maxWidth = "320px";
       const runBtn = MF.Button("Compare", { kind: "primary", size: "lg", iconName: "compare", disabled: true, onClick: run });
@@ -57,7 +65,7 @@
           h(
             "div.row",
             { style: { flexWrap: "wrap", gap: "18px" } },
-            h("div", h("div", { style: { fontWeight: "650", marginBottom: "6px" } }, "How to check contents"), modeSeg.el),
+            h("div", h("div", { style: { fontWeight: "650", marginBottom: "6px" } }, "How to decide two files are the same"), modeSeg.el, modeHelp),
             h("div", { style: { flex: "1", minWidth: "220px" } }, sysOpt.el),
             runBtn,
           ),

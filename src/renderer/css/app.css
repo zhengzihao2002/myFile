@@ -671,21 +671,32 @@ select.select {
 .stage-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .stage-bar .fname { font-weight: 650; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stage-view {
-  flex: 1; min-height: 0; position: relative;
+  flex: 1; min-height: 0; position: relative; overflow: hidden;
   display: grid; place-items: center;
   padding: 26px;
   background-color: var(--surface-2);
   background-image: radial-gradient(var(--line) 1px, transparent 1px);
   background-size: 18px 18px;
 }
-.stage-view img, .stage-view video {
+/* The preview sits in a box of fixed size, so photos and videos of any shape
+   scale down to fit the visible area instead of overflowing it. */
+.stage-view .fit {
+  position: absolute; inset: 22px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  min-height: 0;
+}
+.stage-view .fit img, .stage-view .fit video {
+  display: block;
   max-width: 100%; max-height: 100%;
+  min-height: 0;
+  width: auto; height: auto;
+  object-fit: contain;
   border-radius: 10px;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1), 0 18px 50px rgba(0, 0, 0, 0.22);
   background: #000;
   animation: imgIn 0.35s var(--ease);
 }
-@keyframes imgIn { from { opacity: 0; transform: scale(0.985); } }
+.stage-view .fit.with-note img { max-height: calc(100% - 30px); }
 .stage-view .placeholder { text-align: center; color: var(--muted); }
 .strip { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--line); background: var(--surface); overflow-x: auto; }
 .strip button {
@@ -798,3 +809,9 @@ select.select {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+.date-label { display: flex; align-items: center; gap: 6px; padding: 12px 14px 0; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); }
+.date-label .badge { text-transform: none; letter-spacing: 0; }
+.kv .kvr .k .tag-src { display: block; color: var(--faint); font-size: 10.5px; }
+.mode-help { margin-top: 8px; display: flex; gap: 8px; align-items: flex-start; max-width: 520px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.mode-help b { color: var(--ink); font-weight: 600; }
