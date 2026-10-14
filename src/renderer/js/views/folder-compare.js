@@ -185,6 +185,18 @@
                     ],
                   }).el
                 : null,
+              d.text
+                ? MF.VirtualTable({
+                    maxHeight: 260,
+                    rows: d.text.lines,
+                    columns: [
+                      { label: "Line", width: "70px", align: "right", render: (t) => fmt.num(t.line) },
+                      { label: "A", width: "minmax(180px, 1fr)", render: (t) => (t.a === null ? h("span.faint", "(no such line)") : t.a === "" ? h("span.faint", "(empty)") : t.a) },
+                      { label: "B", width: "minmax(180px, 1fr)", render: (t) => (t.b === null ? h("span.faint", "(no such line)") : t.b === "" ? h("span.faint", "(empty)") : t.b) },
+                    ],
+                  }).el
+                : null,
+              d.text && d.text.total > d.text.lines.length ? h("p.muted.small", `…and ${fmt.num(d.text.total - d.text.lines.length)} more lines.`) : null,
               d.tagsTotal > shownTags.length ? h("p.muted.small", `…and ${fmt.num(d.tagsTotal - shownTags.length)} more tags.`) : null,
             ),
           );

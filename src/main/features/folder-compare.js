@@ -51,6 +51,27 @@ function tagText(v) {
   return typeof v === "string" ? v : JSON.stringify(v);
 }
 
+const TEXT_LIMIT = 2 * 1024 * 1024;
+
+const shorten = (t, n = 80) => (t.length > n ? `${t.slice(0, n)}…` : t);
+const visible = (t) => t.replace(/\r/g, "␍").replace(/\t/g, "⇥");
+
+/** Line-by-line differences if both files are small plain text, else null. */
+async function textDifferences(fileA, fileB) {
+  const [bufA, bufB] = await Promise.all([fs.promises.readFile(fileA), fs.promises.readFile(fileB)]);
+  if (bufA.length > TEXT_LIMIT || bufA.includes(0) || bufB.includes(0)) return null;
+  const A = bufA.toString("utf8").split("\n");
+  const B = bufB.toString("utf8").split("\n");
+  const lines = [];
+  let total = 0;
+  for (let i = 0; i < Math.max(A.length, B.length); i++) {
+    if (A[i] === B[i]) continue;
+    total++;
+    if (lines.length < 30) lines.push({ line: i + 1, a: A[i] === undefined ? null : shorten(visible(A[i])), b: B[i] === undefined ? null : shorten(visible(B[i])) });
+  }
+  return total ? { lines, total } : null;
+}
+
 /** What differs between two same-size files that aren't byte-identical. */
 async function describeDifference(ctx, fileA, fileB, signal) {
   const bytes = await diffContent(fileA, fileB, { signal });
@@ -67,16 +88,20 @@ async function describeDifference(ctx, fileA, fileB, signal) {
   } catch (err) {
     if (err.code === "CANCELLED") throw err;
   }
+  const text = tags.length ? null : await textDifferences(fileA, fileB).catch(() => null);
   const names = tags.map((t) => t.tag.replace(/^[^:]+:/, ""));
   let summary;
   if (tags.length) {
     summary = `Metadata differs: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3} more` : ""}`;
+  } else if (text) {
+    const f = text.lines[0];
+    summary = `Text differs on line ${f.line}: “${f.a ?? ""}” → “${f.b ?? ""}”${text.total > 1 ? ` (+${text.total - 1} more ${text.total === 2 ? "line" : "lines"})` : ""}`;
   } else if (tagCount) {
     summary = "Metadata is the same; the picture/video/data itself differs";
   } else {
-    summary = `${bytes.differingBytes.toLocaleString("en-US")}${bytes.partial ? "+" : ""} bytes differ, first at byte ${bytes.firstOffset.toLocaleString("en-US")}`;
+    summary = `${bytes.differingBytes.toLocaleString("en-US")}${bytes.partial ? "+" : ""} ${bytes.differingBytes === 1 && !bytes.partial ? "byte differs" : "bytes differ"}, first at byte ${bytes.firstOffset.toLocaleString("en-US")}`;
   }
-  return { summary, tags: tags.slice(0, 200), tagsTotal: tags.length, ...bytes };
+  return { summary, tags: tags.slice(0, 200), tagsTotal: tags.length, text, ...bytes };
 }
 
 async function compare(ctx, { a, b, options = {} }, task) {

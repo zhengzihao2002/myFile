@@ -152,7 +152,8 @@ test("compare explains how same-size files differ", async () => {
   assert.equal(row.reason, "content");
   assert.equal(row.detail.firstOffset, 4);
   assert.equal(row.detail.differingBytes, 2);
-  assert.match(row.detail.summary, /2 bytes differ, first at byte 4/);
+  assert.match(row.detail.summary, /^Text differs on line 1: “abcdefghij” → “abcdXfghiY”$/);
+  assert.deepEqual(row.detail.text.lines, [{ line: 1, a: "abcdefghij", b: "abcdXfghiY" }]);
 });
 
 test("compare names the EXIF tags that differ between two photos", async () => {
@@ -169,4 +170,13 @@ test("compare names the EXIF tags that differ between two photos", async () => {
   assert.equal(row.reason, "content");
   assert.ok(row.detail.tags.some((t) => /DateTimeOriginal/.test(t.tag) && /2020/.test(t.a) && /2021/.test(t.b)), JSON.stringify(row.detail));
   assert.match(row.detail.summary, /^Metadata differs: .*DateTimeOriginal/);
+});
+
+test("binary files that are not photos fall back to a byte description", async () => {
+  const a = tmpDir("binA");
+  const b = tmpDir("binB");
+  fs.writeFileSync(path.join(a, "x.bin"), Buffer.from([1, 0, 3, 4]));
+  fs.writeFileSync(path.join(b, "x.bin"), Buffer.from([1, 0, 9, 4]));
+  const r = await call("folder.compare", { a, b, options: { content: "thorough" } });
+  assert.match(r.changed[0].detail.summary, /1 byte differs, first at byte 2/);
 });
