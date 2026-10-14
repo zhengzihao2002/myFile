@@ -330,7 +330,7 @@
   // Virtual table: fixed-height rows, renders only what's visible.
   // ---------------------------------------------------------------------------
 
-  MF.VirtualTable = function VirtualTable({ columns, rows = [], rowHeight = 34, maxHeight = 420, empty = "Nothing to show." }) {
+  MF.VirtualTable = function VirtualTable({ columns, rows = [], rowHeight = 34, maxHeight = 420, empty = "Nothing to show.", onRowClick = null }) {
     let all = rows;
     let shown = rows;
     let filter = null;
@@ -363,7 +363,7 @@
         const row = shown[i];
         const r = h(
           "div.vrow",
-          { style: { top: `${i * rowHeight}px`, height: `${rowHeight}px` } },
+          { style: { top: `${i * rowHeight}px`, height: `${rowHeight}px`, cursor: onRowClick ? "pointer" : "" }, on: onRowClick ? { click: () => onRowClick(row) } : {} },
           columns.map((c) => {
             const v = c.render ? c.render(row, i) : row[c.key];
             const cell = h(`div${c.align === "right" ? ".r" : ""}`);

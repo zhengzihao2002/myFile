@@ -140,3 +140,33 @@ test("modify can use an HTML index as the reference", async () => {
   assert.ok(Math.abs(fs.statSync(path.join(target, "x", "y.txt")).mtimeMs - T1) < 2);
   assert.ok(Math.abs(fs.statSync(target).mtimeMs - T1) < 2);
 });
+
+test("compare explains how same-size files differ", async () => {
+  const { makeJpeg } = require("./helpers");
+  const a = tmpDir("whyA");
+  const b = tmpDir("whyB");
+  fs.writeFileSync(path.join(a, "notes.txt"), "abcdefghij");
+  fs.writeFileSync(path.join(b, "notes.txt"), "abcdXfghiY");
+  const r = await call("folder.compare", { a, b, options: { content: "thorough" } });
+  const row = r.changed.find((x) => x.rel === "notes.txt");
+  assert.equal(row.reason, "content");
+  assert.equal(row.detail.firstOffset, 4);
+  assert.equal(row.detail.differingBytes, 2);
+  assert.match(row.detail.summary, /2 bytes differ, first at byte 4/);
+});
+
+test("compare names the EXIF tags that differ between two photos", async () => {
+  const { makeJpeg } = require("./helpers");
+  const a = tmpDir("exifA");
+  const b = tmpDir("exifB");
+  await makeJpeg(path.join(a, "p.jpg"));
+  fs.copyFileSync(path.join(a, "p.jpg"), path.join(b, "p.jpg"));
+  const { ctx } = { ctx: await require("./helpers").testContext() };
+  await ctx.et.write(path.join(a, "p.jpg"), [["DateTimeOriginal", "2020:01:02 03:04:05"]]);
+  await ctx.et.write(path.join(b, "p.jpg"), [["DateTimeOriginal", "2021:06:07 08:09:10"]]);
+  const r = await call("folder.compare", { a, b, options: { content: "thorough" } });
+  const row = r.changed.find((x) => x.rel === "p.jpg");
+  assert.equal(row.reason, "content");
+  assert.ok(row.detail.tags.some((t) => /DateTimeOriginal/.test(t.tag) && /2020/.test(t.a) && /2021/.test(t.b)), JSON.stringify(row.detail));
+  assert.match(row.detail.summary, /^Metadata differs: .*DateTimeOriginal/);
+});

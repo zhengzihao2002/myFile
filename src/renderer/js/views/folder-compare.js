@@ -85,6 +85,7 @@
         try {
           result = await MF.busy("Comparing folders…", "folder.compare", { a: dropA.paths[0], b: dropB.paths[0], options: { content, includeAll } }, (p) => {
             if (p.phase === "scan") return { label: "Reading both folders…", left: `A: ${fmt.num(p.scannedA)} items`, right: `B: ${fmt.num(p.scannedB)} items` };
+            if (p.phase === "explain") return { label: "Working out what differs…", ratio: p.totalFiles ? p.doneFiles / p.totalFiles : null, left: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, current: p.current };
             if (p.phase === "content") return { label: "Comparing file contents…", ratio: p.totalBytes ? p.doneBytes / p.totalBytes : null, left: `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)}`, right: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, current: p.current };
             return {};
           });
@@ -135,7 +136,8 @@
           onlyB: { rows: r.onlyB, columns: [col.path, col.size("size"), col.date("Modified", "mtimeMs")] },
           changed: {
             rows: r.changed,
-            columns: [col.path, col.size("sizeA", "A size"), col.size("sizeB", "B size"), col.date("A modified", "mtimeA"), col.date("B modified", "mtimeB"), { label: "Why", width: "130px", render: (x) => h("span.badge.amber", REASONS[x.reason] || x.reason) }],
+            columns: [col.path, col.size("sizeA", "A size"), col.size("sizeB", "B size"), col.date("A modified", "mtimeA"), col.date("B modified", "mtimeB"), { label: "Why", width: "130px", render: (x) => h("span.badge.amber", REASONS[x.reason] || x.reason) }, { label: "What differs (click a row for details)", width: "minmax(240px, 1.6fr)", render: (x) => (x.detail ? x.detail.summary : x.reason === "content" ? "Not analysed (too many changed files)" : ""), title: (x) => (x.detail ? x.detail.summary : "") }],
+            onRowClick: showDetail,
           },
           dates: {
             rows: r.dateDiffs,
@@ -160,12 +162,40 @@
         ];
         const first = (tabDefs.find((t) => t.count && t.id !== "identical") || tabDefs.find((t) => t.count) || tabDefs[0]).id;
         const tableBox = h("div");
+        const detailBox = h("div");
+        function showDetail(x) {
+          const d = x.detail;
+          if (!d) return replace(detailBox);
+          const shownTags = d.tags.slice(0, 60);
+          replace(
+            detailBox,
+            h(
+              "div.card-pad",
+              { style: { borderTop: "1px solid var(--line)" } },
+              h("div", { style: { fontWeight: "650", marginBottom: "4px" } }, x.rel),
+              h("p.muted.small", { style: { margin: "0 0 8px" } }, `${d.summary}. Same size (${fmt.size(x.sizeA)}); ${fmt.num(d.differingBytes)}${d.partial ? "+" : ""} bytes differ${d.firstOffset >= 0 ? `, the first at byte ${fmt.num(d.firstOffset)}` : ""}${d.partial ? ` (only the first ${fmt.size(d.scannedBytes)} were counted)` : ""}.`),
+              shownTags.length
+                ? MF.VirtualTable({
+                    maxHeight: 260,
+                    rows: shownTags,
+                    columns: [
+                      { label: "Tag", width: "minmax(180px, 1fr)", render: (t) => h("b", t.tag) },
+                      { label: "A", width: "minmax(180px, 1.4fr)", render: (t) => (t.a === null ? h("span.faint", "(missing)") : t.a) },
+                      { label: "B", width: "minmax(180px, 1.4fr)", render: (t) => (t.b === null ? h("span.faint", "(missing)") : t.b) },
+                    ],
+                  }).el
+                : null,
+              d.tagsTotal > shownTags.length ? h("p.muted.small", `…and ${fmt.num(d.tagsTotal - shownTags.length)} more tags.`) : null,
+            ),
+          );
+        }
         const search = h("input", { placeholder: "Filter by path", spellcheck: false });
         let active = first;
         let table = null;
         const show = (id) => {
           active = id;
-          table = MF.VirtualTable({ columns: views[id].columns, rows: views[id].rows, maxHeight: 460, empty: "Nothing here." });
+          table = MF.VirtualTable({ columns: views[id].columns, rows: views[id].rows, maxHeight: 460, empty: "Nothing here.", onRowClick: views[id].onRowClick });
+          replace(detailBox);
           replace(tableBox, table.el);
           applyFilter();
         };
@@ -196,7 +226,7 @@
           verdict,
           stats,
           errors ? MF.Callout("amber", h("b", `${fmt.plural(errors, "item")} couldn't be read`), " and were left out. ", [...r.a.errors, ...r.b.errors].slice(0, 3).map((e) => `${e.rel || "."}: ${e.error}`).join(" · ")) : null,
-          h("div.card", tabs.el, h("div", { style: { padding: "10px 12px" } }, h("div.input", icon("search"), search)), tableBox),
+          h("div.card", tabs.el, h("div", { style: { padding: "10px 12px" } }, h("div.input", icon("search"), search)), tableBox, detailBox),
           MF.Section("File types", `${extRows.length} kinds of files`),
           h("div.card", extTable.el),
         );

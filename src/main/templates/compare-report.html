@@ -166,8 +166,9 @@
     { id: "onlyA", label: "Only in A", rows: D.onlyA, head: ["Path", "Size", "Modified"], row: function (r) { return ["<code>" + esc(r.rel) + "</code>", size(r.size), date(r.mtimeMs)]; } },
     { id: "onlyB", label: "Only in B", rows: D.onlyB, head: ["Path", "Size", "Modified"], row: function (r) { return ["<code>" + esc(r.rel) + "</code>", size(r.size), date(r.mtimeMs)]; } },
     { id: "changed", label: "Changed", rows: D.changed, head: ["Path", "A size", "B size", "A modified", "B modified", "Why"], row: function (r) {
+      var detail = r.detail ? ' <span style="color:var(--muted)">' + esc(r.detail.summary) + "</span>" : "";
       var why = { size: "size", content: "contents", type: "file vs folder", link: "link target", unreadable: "unreadable" }[r.reason] || r.reason;
-      return ["<code>" + esc(r.rel) + "</code>", size(r.sizeA), size(r.sizeB), date(r.mtimeA), date(r.mtimeB), '<span class="badge b-amber">' + esc(why) + "</span>"];
+      return ["<code>" + esc(r.rel) + "</code>", size(r.sizeA), size(r.sizeB), date(r.mtimeA), date(r.mtimeB), '<span class="badge b-amber">' + esc(why) + "</span>" + detail];
     } },
     { id: "dates", label: "Different dates", rows: D.dateDiffs, head: ["Path", "A created", "B created", "A modified", "B modified", "Differs"], row: function (r) {
       return ["<code>" + esc(r.rel) + (r.kind === "dir" ? "/" : "") + "</code>", date(r.birthA), date(r.birthB), date(r.mtimeA), date(r.mtimeB), '<span class="badge b-blue">' + esc(r.diff) + "</span>"];

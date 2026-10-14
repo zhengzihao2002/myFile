@@ -8,7 +8,7 @@ const path = require("node:path");
 const { UserError, mapLimit, throttle, extOf, newId, humanSize } = require("../lib/util");
 const { scanTree } = require("../lib/scan");
 const { ignoreFor } = require("../lib/ignore");
-const { sameContent } = require("../lib/samefile");
+const { sameContent, diffContent } = require("../lib/samefile");
 const { renderTemplate } = require("./templates");
 
 function sideStats(scan) {
@@ -41,6 +41,42 @@ function sideStats(scan) {
 
 function fileRow(item) {
   return { rel: item.rel, kind: item.kind, size: item.size, mtimeMs: item.mtimeMs, birthMs: item.birthMs };
+}
+
+const DETAIL_LIMIT = 200;
+const IGNORED_TAG = /^(System:|ExifTool:|SourceFile$|File:(FileName|Directory|FileSize|FileModifyDate|FileAccessDate|FileInodeChangeDate|FileCreateDate|FilePermissions)$)/;
+
+function tagText(v) {
+  if (v === undefined) return null;
+  return typeof v === "string" ? v : JSON.stringify(v);
+}
+
+/** What differs between two same-size files that aren't byte-identical. */
+async function describeDifference(ctx, fileA, fileB, signal) {
+  const bytes = await diffContent(fileA, fileB, { signal });
+  let tags = [];
+  let tagCount = 0;
+  try {
+    const [[ra = {}], [rb = {}]] = await Promise.all([ctx.et.readJson([fileA], ["-G1", "-a", "-s"], { signal }), ctx.et.readJson([fileB], ["-G1", "-a", "-s"], { signal })]);
+    const keys = [...new Set([...Object.keys(ra), ...Object.keys(rb)])].filter((k) => !IGNORED_TAG.test(k));
+    tagCount = keys.filter((k) => !k.startsWith("File:")).length;
+    tags = keys
+      .map((k) => ({ tag: k, a: tagText(ra[k]), b: tagText(rb[k]) }))
+      .filter((t) => t.a !== t.b)
+      .map((t) => ({ tag: t.tag, a: t.a && t.a.length > 160 ? `${t.a.slice(0, 160)}…` : t.a, b: t.b && t.b.length > 160 ? `${t.b.slice(0, 160)}…` : t.b }));
+  } catch (err) {
+    if (err.code === "CANCELLED") throw err;
+  }
+  const names = tags.map((t) => t.tag.replace(/^[^:]+:/, ""));
+  let summary;
+  if (tags.length) {
+    summary = `Metadata differs: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` +${names.length - 3} more` : ""}`;
+  } else if (tagCount) {
+    summary = "Metadata is the same; the picture/video/data itself differs";
+  } else {
+    summary = `${bytes.differingBytes.toLocaleString("en-US")}${bytes.partial ? "+" : ""} bytes differ, first at byte ${bytes.firstOffset.toLocaleString("en-US")}`;
+  }
+  return { summary, tags: tags.slice(0, 200), tagsTotal: tags.length, ...bytes };
 }
 
 async function compare(ctx, { a, b, options = {} }, task) {
@@ -149,6 +185,21 @@ async function compare(ctx, { a, b, options = {} }, task) {
     task.signal,
   );
   reportBytes.flush();
+
+  // Explain *how* same-size files differ (metadata tags and raw bytes), for the first few.
+  const explain = changed.filter((x) => x.reason === "content");
+  const byPath = new Map(toCheck.map((x) => [x.rel, x]));
+  let explained = 0;
+  for (const row of explain.slice(0, DETAIL_LIMIT)) {
+    const x = byPath.get(row.rel);
+    if (!x) continue;
+    task.progress({ phase: "explain", current: row.rel, doneFiles: explained, totalFiles: Math.min(explain.length, DETAIL_LIMIT) });
+    row.detail = await describeDifference(ctx, x.ia.path, x.ib.path, task.signal).catch((err) => {
+      if (err.code === "CANCELLED") throw err;
+      return null;
+    });
+    explained++;
+  }
 
   const identicalRows = identical.map((x) => {
     if (!x.ia) return x;
