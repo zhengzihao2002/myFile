@@ -106,10 +106,7 @@ async function compare(ctx, { a, b, options = {} }, task) {
       changed.push({ rel, reason: "size", sizeA: ia.size, sizeB: ib.size, mtimeA: ia.mtimeMs, mtimeB: ib.mtimeMs });
       continue;
     }
-    // Smart skips reading only when size, modified date and created date all
-    // match. A created date of 0 means the file system doesn't record one.
-    const sameBirth = !(ia.birthMs > 0 && ib.birthMs > 0) || Math.abs(ia.birthMs - ib.birthMs) <= 1;
-    const sameTime = Math.abs(ia.mtimeMs - ib.mtimeMs) <= 1 && sameBirth;
+    const sameTime = Math.abs(ia.mtimeMs - ib.mtimeMs) <= 1;
     if (opts.content === "size" || (opts.content === "smart" && sameTime) || ia.size === 0) {
       identical.push({ rel, size: ia.size, check: opts.content === "size" ? "size" : "quick", ia, ib });
     } else {

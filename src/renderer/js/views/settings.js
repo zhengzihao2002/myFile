@@ -51,7 +51,7 @@
         const compare = MF.Segmented({
           value: s.compareContent,
           options: [
-            { value: "smart", label: "Smart · recommended", title: "Same size, modified and created date = identical; otherwise read both" },
+            { value: "smart", label: "Smart · recommended", title: "Same size and date = identical; same size but different date = read both" },
             { value: "thorough", label: "Every byte · strictest", title: "Read and compare every pair of same-size files" },
             { value: "size", label: "Size only · fastest", title: "Same size = identical; nothing is read" },
           ],
@@ -71,7 +71,7 @@
             "div.card.card-pad.group-card",
             h("h3", "Comparing"),
             h("div.option", h("span.text", h("div.title", "When are two dates the same?"), h("div.desc", "Used to decide what needs fixing. New dates are always written exactly.")), tolerance.el),
-            h("div.option", h("span.text", h("div.title", "Folder › Compare checks contents by"), h("div.desc", "Smart reads files only when the size matches but a date differs.")), compare.el),
+            h("div.option", h("span.text", h("div.title", "Folder › Compare checks contents by"), h("div.desc", "Smart reads files only when size matches but dates differ.")), compare.el),
             includeAll.el,
           ),
           h(
