@@ -1,0 +1,5 @@
+This file marks the myFile project folder.
+
+myFile.app looks for it next to itself. When found, the app keeps its settings
+and history in .runtime/appdata inside this folder, so deleting the folder
+removes them too. uninstall.sh also checks for it before deleting anything.

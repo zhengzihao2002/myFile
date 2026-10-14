@@ -1,0 +1,9 @@
+# Built app and everything the installer downloads
+/myFile.app/
+/node_modules/
+/.runtime/
+
+# Test output
+/test/.tmp/
+
+.DS_Store

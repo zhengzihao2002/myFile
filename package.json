@@ -1,0 +1,19 @@
+{
+  "name": "myfile",
+  "productName": "myFile",
+  "version": "1.0.0",
+  "description": "EXIF, folder and sync tools for macOS, with everything kept in one folder.",
+  "private": true,
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "node scripts/build-app.mjs",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "exiftool-vendored.pl": "13.59.3"
+  },
+  "devDependencies": {
+    "electron": "44.4.5"
+  }
+}

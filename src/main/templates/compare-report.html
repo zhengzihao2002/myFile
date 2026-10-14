@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="myFile">
+<title>__TITLE__</title>
+<style>
+  :root {
+    --bg: #f3f5fa;
+    --card: #ffffff;
+    --text: #161b2c;
+    --muted: #667085;
+    --border: #e4e7ee;
+    --soft: #f7f8fb;
+    --accent: #5b5bd6;
+    --accent-soft: #eeeeff;
+    --green: #16875a;
+    --green-bg: #e6f6ee;
+    --red: #c83c4a;
+    --red-bg: #fdeff1;
+    --amber: #a66b00;
+    --amber-bg: #fff6dd;
+    --blue: #2d6fd8;
+    --blue-bg: #e8f0fd;
+    --shadow: 0 8px 30px rgba(15, 23, 42, .06);
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1016; --card: #161922; --text: #e6e8f0; --muted: #8e96a8; --border: #252a36; --soft: #1b1f29;
+      --accent: #9aa0ff; --accent-soft: #23264a; --green: #4cc38a; --green-bg: #12291f; --red: #f07480; --red-bg: #2e161a;
+      --amber: #f0b45a; --amber-bg: #2c2312; --blue: #7aa7ff; --blue-bg: #16213a; --shadow: 0 8px 30px rgba(0, 0, 0, .35);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  .container { max-width: 1400px; margin: auto; padding: 36px 24px 80px; }
+  .hero { color: #fff; padding: 34px; border-radius: 24px; margin-bottom: 20px; background: linear-gradient(135deg, #171a35, #2b2a63 55%, #5a4bc0); box-shadow: 0 20px 60px rgba(30, 30, 70, .2); }
+  .hero .eyebrow { margin: 0 0 8px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: rgba(255,255,255,.6); font-weight: 600; }
+  .hero h1 { margin: 0 0 6px; font-size: 32px; letter-spacing: -.02em; }
+  .hero p { color: rgba(255,255,255,.72); margin: 4px 0; }
+  .verdict { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 6px 12px; border-radius: 999px; background: rgba(255,255,255,.12); font-weight: 600; font-size: 13px; }
+  .paths { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 22px; }
+  .path-card { padding: 14px 16px; border-radius: 14px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14); }
+  .path-label { color: rgba(255,255,255,.55); text-transform: uppercase; font-size: 11px; letter-spacing: .1em; }
+  .path { margin-top: 4px; font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 18px; box-shadow: var(--shadow); }
+  .metric { padding: 20px; }
+  .metric-label { color: var(--muted); font-size: 13px; font-weight: 600; }
+  .metric-value { margin-top: 6px; font-size: 25px; font-weight: 750; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .metric-sub { margin-top: 4px; color: var(--muted); font-size: 12px; }
+  .pos { color: var(--green) !important; }
+  .neg { color: var(--red) !important; }
+  .section { margin-top: 20px; padding: 24px; }
+  .section h2 { margin: 0; font-size: 19px; letter-spacing: -.01em; }
+  .section-description { margin-top: 3px; color: var(--muted); font-size: 13px; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; margin-top: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); background: var(--soft); white-space: nowrap; font-weight: 600; }
+  th, td { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr:hover { background: var(--soft); }
+  tr:last-child td { border-bottom: none; }
+  code { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 12px; }
+  .tab { border: 1px solid var(--border); background: var(--card); color: var(--muted); padding: 8px 13px; border-radius: 10px; cursor: pointer; font: 600 13px/1 inherit; }
+  .tab.active { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+  .tab .n { margin-left: 6px; font-variant-numeric: tabular-nums; opacity: .8; }
+  .search { width: 100%; padding: 10px 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--card); color: var(--text); outline: none; font: inherit; }
+  .search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .badge { display: inline-flex; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .b-green { color: var(--green); background: var(--green-bg); }
+  .b-amber { color: var(--amber); background: var(--amber-bg); }
+  .b-red { color: var(--red); background: var(--red-bg); }
+  .b-blue { color: var(--blue); background: var(--blue-bg); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .more { margin-top: 10px; }
+  .more button { border: 1px solid var(--border); background: var(--card); color: var(--text); padding: 8px 14px; border-radius: 10px; cursor: pointer; font: inherit; }
+  .empty { padding: 26px; text-align: center; color: var(--muted); }
+  .footer { text-align: center; color: var(--muted); font-size: 12px; padding-top: 26px; }
+  @media (max-width: 1000px) { .grid { grid-template-columns: repeat(2, 1fr); } .paths, .two { grid-template-columns: 1fr; } }
+  @media (max-width: 600px) { .container { padding: 16px 12px 50px; } .hero { padding: 22px; border-radius: 18px; } .hero h1 { font-size: 26px; } .grid { grid-template-columns: 1fr; } .section { padding: 16px; } }
+</style>
+</head>
+<body>
+<div class="container" id="app"></div>
+<script id="myfile-compare" type="application/json">__DATA__</script>
+<script>
+(function () {
+  "use strict";
+  var D = JSON.parse(document.getElementById("myfile-compare").textContent);
+  var PAGE = 500;
+
+  function esc(s) { return String(s === null || s === undefined ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function size(b) {
+    if (!isFinite(b)) return "—";
+    var neg = b < 0; b = Math.abs(b);
+    if (b < 1000) return (neg ? "-" : "") + b + " B";
+    var u = ["KB", "MB", "GB", "TB", "PB"], i = -1;
+    do { b /= 1000; i++; } while (b >= 1000 && i < u.length - 1);
+    return (neg ? "-" : "") + b.toFixed(b < 10 ? 2 : b < 100 ? 1 : 0) + " " + u[i];
+  }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function date(ms) {
+    if (!isFinite(ms) || !ms) return "—";
+    var d = new Date(ms);
+    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  }
+  function diff(n, fmt) { var t = fmt ? fmt(n) : n.toLocaleString(); return n > 0 ? "+" + t : t; }
+  function cls(n) { return n > 0 ? "pos" : n < 0 ? "neg" : ""; }
+  function num(n) { return Number(n || 0).toLocaleString(); }
+
+  var c = D.counts;
+  var sizeDiff = D.b.size - D.a.size;
+  var fileDiff = D.b.files - D.a.files;
+  var verdict = D.same
+    ? (c.dateDiffs ? "Same contents · " + num(c.dateDiffs) + " item(s) with different dates" : "These folders are identical")
+    : "These folders differ";
+
+  var html = "";
+  html += '<div class="hero"><p class="eyebrow">Folder comparison</p><h1>' + esc(D.a.name) + " vs " + esc(D.b.name) + "</h1>" +
+    "<p>Generated " + esc(date(D.generatedAt)) + " · took " + esc((D.elapsedMs / 1000).toFixed(1)) + " s · content check: " + esc(D.options.content) + "</p>" +
+    '<span class="verdict">' + (D.same ? "✓ " : "≠ ") + esc(verdict) + "</span>" +
+    '<div class="paths"><div class="path-card"><div class="path-label">Folder A</div><div class="path">' + esc(D.a.root) + "</div></div>" +
+    '<div class="path-card"><div class="path-label">Folder B</div><div class="path">' + esc(D.b.root) + "</div></div></div></div>";
+
+  html += '<div class="grid">' +
+    metric("Files", num(D.a.files) + " → " + num(D.b.files), 'Difference <span class="' + cls(fileDiff) + '">' + diff(fileDiff) + "</span>") +
+    metric("Total size", size(D.a.size) + " → " + size(D.b.size), '<span class="' + cls(sizeDiff) + '">' + (sizeDiff ? diff(sizeDiff, size) : "No difference") + "</span>") +
+    metric("Identical files", num(c.identical), "Same path, same contents") +
+    metric("Changed files", num(c.changed), "Same path, different contents") +
+    "</div>";
+
+  html += '<div class="card section"><h2>File-level differences</h2><div class="section-description">Search within each list.</div>' +
+    '<div class="tabs" id="tabs"></div><input class="search" id="search" placeholder="Search paths…" autocomplete="off"><div id="panel"></div></div>';
+
+  html += '<div class="card section"><h2>File types</h2><div class="section-description">Count and size by extension.</div><div class="table-wrap"><table><thead><tr><th>Extension</th><th class="num">A count</th><th class="num">B count</th><th class="num">Δ</th><th class="num">A size</th><th class="num">B size</th><th class="num">Δ size</th></tr></thead><tbody>' +
+    D.extensions.map(function (e) {
+      var dc = e.countB - e.countA, ds = e.sizeB - e.sizeA;
+      return "<tr><td><b>" + esc(e.ext) + '</b></td><td class="num">' + num(e.countA) + '</td><td class="num">' + num(e.countB) + '</td><td class="num ' + cls(dc) + '">' + diff(dc) + '</td><td class="num">' + size(e.sizeA) + '</td><td class="num">' + size(e.sizeB) + '</td><td class="num ' + cls(ds) + '">' + (ds ? diff(ds, size) : "—") + "</td></tr>";
+    }).join("") + "</tbody></table></div></div>";
+
+  html += '<div class="card section"><h2>Largest files</h2><div class="two">' + largest("Folder A", D.a.largest) + largest("Folder B", D.b.largest) + "</div></div>";
+
+  if (D.a.errorCount || D.b.errorCount) {
+    html += '<div class="card section"><h2>Items that couldn’t be read</h2><div class="two">' + errors("Folder A", D.a) + errors("Folder B", D.b) + "</div></div>";
+  }
+  html += '<div class="footer">Folder comparison by myFile · generated locally · nothing in either folder was changed</div>';
+  document.getElementById("app").innerHTML = html;
+
+  function metric(label, value, sub) {
+    return '<div class="card metric"><div class="metric-label">' + esc(label) + '</div><div class="metric-value">' + esc(value) + '</div><div class="metric-sub">' + sub + "</div></div>";
+  }
+  function largest(title, list) {
+    return "<div><h3>" + esc(title) + '</h3><div class="table-wrap"><table><thead><tr><th>#</th><th>File</th><th class="num">Size</th></tr></thead><tbody>' +
+      (list.length ? list.map(function (f, i) { return "<tr><td>" + (i + 1) + "</td><td><code>" + esc(f.rel) + '</code></td><td class="num">' + size(f.size) + "</td></tr>"; }).join("") : '<tr><td colspan="3" class="empty">No files</td></tr>') +
+      "</tbody></table></div></div>";
+  }
+  function errors(title, side) {
+    return "<div><h3>" + esc(title) + "</h3>" + (side.errors.length ? "<ul>" + side.errors.map(function (e) { return "<li><code>" + esc(e.rel || ".") + "</code> — " + esc(e.error) + "</li>"; }).join("") + "</ul>" : '<span class="badge b-green">None</span>') + "</div>";
+  }
+
+  var TABS = [
+    { id: "onlyA", label: "Only in A", rows: D.onlyA, head: ["Path", "Size", "Modified"], row: function (r) { return ["<code>" + esc(r.rel) + "</code>", size(r.size), date(r.mtimeMs)]; } },
+    { id: "onlyB", label: "Only in B", rows: D.onlyB, head: ["Path", "Size", "Modified"], row: function (r) { return ["<code>" + esc(r.rel) + "</code>", size(r.size), date(r.mtimeMs)]; } },
+    { id: "changed", label: "Changed", rows: D.changed, head: ["Path", "A size", "B size", "A modified", "B modified", "Why"], row: function (r) {
+      var why = { size: "size", content: "contents", type: "file vs folder", link: "link target", unreadable: "unreadable" }[r.reason] || r.reason;
+      return ["<code>" + esc(r.rel) + "</code>", size(r.sizeA), size(r.sizeB), date(r.mtimeA), date(r.mtimeB), '<span class="badge b-amber">' + esc(why) + "</span>"];
+    } },
+    { id: "dates", label: "Different dates", rows: D.dateDiffs, head: ["Path", "A created", "B created", "A modified", "B modified", "Differs"], row: function (r) {
+      return ["<code>" + esc(r.rel) + (r.kind === "dir" ? "/" : "") + "</code>", date(r.birthA), date(r.birthB), date(r.mtimeA), date(r.mtimeB), '<span class="badge b-blue">' + esc(r.diff) + "</span>"];
+    } },
+    { id: "identical", label: "Identical", rows: D.identical, head: ["Path", "Size", "A modified", "B modified", "Checked by"], row: function (r) {
+      var by = { bytes: "byte-by-byte", quick: "size + date", size: "size only", link: "link" }[r.check] || r.check;
+      return ["<code>" + esc(r.rel) + "</code>", size(r.size), date(r.mtimeA), date(r.mtimeB), '<span class="badge b-green">' + esc(by) + "</span>"];
+    } },
+    { id: "foldersA", label: "Folders only in A", rows: D.foldersOnlyA.map(function (rel) { return { rel: rel }; }), head: ["Folder"], row: function (r) { return ["<code>" + esc(r.rel) + "/</code>"]; } },
+    { id: "foldersB", label: "Folders only in B", rows: D.foldersOnlyB.map(function (rel) { return { rel: rel }; }), head: ["Folder"], row: function (r) { return ["<code>" + esc(r.rel) + "/</code>"]; } }
+  ];
+  var current = TABS.find(function (t) { return t.rows.length; }) || TABS[0];
+  var shown = PAGE;
+  var tabs = document.getElementById("tabs");
+  var search = document.getElementById("search");
+  var panel = document.getElementById("panel");
+
+  function drawTabs() {
+    tabs.innerHTML = TABS.map(function (t) {
+      return '<button class="tab' + (t === current ? " active" : "") + '" data-id="' + t.id + '">' + esc(t.label) + '<span class="n">' + num(t.rows.length) + "</span></button>";
+    }).join("");
+  }
+  function drawPanel() {
+    var term = search.value.trim().toLowerCase();
+    var rows = term ? current.rows.filter(function (r) { return r.rel.toLowerCase().indexOf(term) >= 0; }) : current.rows;
+    if (!rows.length) { panel.innerHTML = '<div class="empty">' + (term ? "No matches." : "Nothing here.") + "</div>"; return; }
+    var body = rows.slice(0, shown).map(function (r) {
+      return "<tr>" + current.row(r).map(function (cell, i) { return "<td" + (i > 0 && /^[\d.,\-+ ]+[KMGTP]?B$|^—$/.test(cell) ? ' class="num"' : "") + ">" + cell + "</td>"; }).join("") + "</tr>";
+    }).join("");
+    panel.innerHTML = '<div class="table-wrap"><table><thead><tr>' + current.head.map(function (h) { return "<th>" + esc(h) + "</th>"; }).join("") + "</tr></thead><tbody>" + body + "</tbody></table></div>" +
+      (rows.length > shown ? '<div class="more"><button id="more">Show more (' + num(rows.length - shown) + " left)</button></div>" : "");
+    var more = document.getElementById("more");
+    if (more) more.onclick = function () { shown += PAGE; drawPanel(); };
+  }
+  tabs.addEventListener("click", function (e) {
+    var b = e.target.closest(".tab");
+    if (!b) return;
+    current = TABS.find(function (t) { return t.id === b.dataset.id; });
+    shown = PAGE;
+    drawTabs();
+    drawPanel();
+  });
+  var timer;
+  search.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(function () { shown = PAGE; drawPanel(); }, 120); });
+  drawTabs();
+  drawPanel();
+})();
+</script>
+</body>
+</html>
