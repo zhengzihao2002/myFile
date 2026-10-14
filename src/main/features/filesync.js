@@ -487,7 +487,7 @@ async function analyze(ctx, { reference, targets, mode = "direct", selection = n
         seenLower.set(lower, a.rel);
       }
     }
-    if (!v.writable) t.blockedReason = v.fsType === "ntfs" ? `${v.name} is formatted NTFS, which macOS can read but not write. Reformat it as exFAT (works with Windows too) or APFS.` : `${v.name} is read-only.`;
+    if (!v.writable) t.blockedReason = v.fsType === "ntfs" ? `${v.name} is formatted NTFS, which macOS can read but not write. Reformat it as exFAT (works with Windows too) or APFS.` : v.volumeWritable ? `You don't have permission to change this folder. Check its permissions in Finder (Get Info › Sharing & Permissions).` : `${v.name} is read-only.`;
     if (tooBig.length) t.warnings.push(`${tooBig.length} file${tooBig.length === 1 ? " is" : "s are"} over 4 GB and can't go on this ${v.fsLabel} drive (e.g. ${tooBig.slice(0, 2).join(", ")}). Reformat it as exFAT or APFS to copy them.`);
     if (badNames.length) t.warnings.push(`${badNames.length} name${badNames.length === 1 ? "" : "s"} may not be allowed on ${v.fsLabel}: ${badNames.slice(0, 3).join(", ")}${badNames.length > 3 ? "…" : ""}`);
     if (!v.xattrs && opts.avoidAppleDouble && t.actions.some((a) => a.op === "copy" || a.op === "replace")) {

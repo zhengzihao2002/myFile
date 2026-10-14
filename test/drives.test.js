@@ -160,3 +160,28 @@ test("diskutil's property lists are read correctly", () => {
   assert.match(realVolumes.nameProblem("a:b"), /“:”/);
   assert.ok(realVolumes.isVolumeSystemItem(".Spotlight-V100"));
 });
+
+test("df output names the volume holding a folder, including names with spaces", () => {
+  const data = "Filesystem     1024-blocks      Used Available Capacity  Mounted on\n/dev/disk3s5s1   976490576 150000000 800000000    16%    /System/Volumes/Data\n";
+  assert.equal(realVolumes.parseDfMountPoint(data), "/System/Volumes/Data");
+  const t7 = "Filesystem   1024-blocks Used Available Capacity Mounted on\n/dev/disk5s2  976490576 1000 976000000    1%    /Volumes/Samsung T7 Shield\n";
+  assert.equal(realVolumes.parseDfMountPoint(t7), "/Volumes/Samsung T7 Shield");
+  assert.equal(realVolumes.parseDfMountPoint(""), null);
+});
+
+test("a folder you can write to is writable; one you can't says so without blaming the disk", async (t) => {
+  if (process.getuid && process.getuid() === 0) return t.skip("root can write anywhere");
+  const open = tmpDir("perm-open");
+  const locked = tmpDir("perm-locked");
+  fs.chmodSync(locked, 0o555);
+  try {
+    const a = await realVolumes.info(open);
+    assert.equal(a.writable, true);
+    const b = await realVolumes.info(path.join(locked, "not-yet"));
+    assert.equal(b.pathWritable, false);
+    assert.equal(b.writable, false);
+    assert.equal(b.volumeWritable, a.volumeWritable);
+  } finally {
+    fs.chmodSync(locked, 0o755);
+  }
+});

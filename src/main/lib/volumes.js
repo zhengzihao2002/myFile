@@ -128,6 +128,29 @@ function diskutil(args) {
 
 // ---------------------------------------------------------------------------
 
+/** "Mounted on" column of `df -P` output (the name may contain spaces). */
+function parseDfMountPoint(stdout) {
+  const lines = String(stdout).trim().split("\n");
+  const m = /\d+%\s+(.+)$/.exec(lines[lines.length - 1] || "");
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * macOS: ask df which volume holds `p`. Folders in the home folder live on the
+ * "Macintosh HD - Data" volume (/System/Volumes/Data), which is joined to the
+ * read-only system volume at "/", so comparing device numbers alone lands on
+ * "/Users" and describes the wrong volume.
+ */
+function dfMountPoint(p) {
+  return new Promise((resolve) => {
+    execFile("/bin/df", ["-P", "-k", p], { timeout: 10000 }, (err, stdout) => {
+      if (err) return resolve(null);
+      const mp = parseDfMountPoint(stdout);
+      resolve(mp && path.isAbsolute(mp) ? mp : null);
+    });
+  });
+}
+
 /** The mount point of the volume holding `p` (walks up until the device changes). */
 async function mountPointOf(p) {
   let cur = path.resolve(p);
@@ -145,6 +168,10 @@ async function mountPointOf(p) {
   // External drives are mounted at /Volumes/<name>.
   const vol = /^\/Volumes\/[^/]+/.exec(cur);
   if (IS_MAC && vol) return vol[0];
+  if (IS_MAC) {
+    const mp = await dfMountPoint(cur);
+    if (mp) return mp;
+  }
   while (true) {
     const parent = path.dirname(cur);
     if (parent === cur) return cur;
@@ -217,11 +244,6 @@ async function describe(mountPoint) {
   } else {
     base.fsType = linuxFsType(mountPoint);
   }
-  try {
-    await fs.promises.access(mountPoint, fs.constants.W_OK);
-  } catch {
-    base.writable = false;
-  }
   const traits = TRAITS[base.fsType] || TRAITS.unknown;
   // macOS can read NTFS but not write it without extra software.
   if (base.fsType === "ntfs" && IS_MAC) base.writable = false;
@@ -235,14 +257,42 @@ async function describe(mountPoint) {
   };
 }
 
-/** Volume facts for the disk holding `p`, cached for a few seconds. */
+/** Can this user change things in `p` (or, if it doesn't exist yet, the closest folder above it)? */
+async function canWriteAt(p) {
+  let cur = path.resolve(p);
+  while (true) {
+    try {
+      const st = await fs.promises.stat(cur);
+      if (!st.isDirectory()) cur = path.dirname(cur);
+      break;
+    } catch {
+      const parent = path.dirname(cur);
+      if (parent === cur) break;
+      cur = parent;
+    }
+  }
+  try {
+    await fs.promises.access(cur, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Volume facts for the disk holding `p`, cached for a few seconds.
+ * `volumeWritable` is about the disk; `writable` also needs this folder's
+ * permissions to allow changes.
+ */
 async function info(p) {
   const mountPoint = await mountPointOf(p);
-  const hit = cache.get(mountPoint);
-  if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
-  const value = await describe(mountPoint);
-  cache.set(mountPoint, { at: Date.now(), value });
-  return value;
+  let hit = cache.get(mountPoint);
+  if (!hit || Date.now() - hit.at >= CACHE_MS) {
+    hit = { at: Date.now(), value: await describe(mountPoint) };
+    cache.set(mountPoint, hit);
+  }
+  const pathWritable = await canWriteAt(p);
+  return { ...hit.value, volumeWritable: hit.value.writable, pathWritable, writable: hit.value.writable && pathWritable };
 }
 
 /** Short description for the UI: "Samsung PSSD T7 · ExFAT · USB". */
@@ -256,6 +306,7 @@ function brief(v) {
     solidState: v.solidState,
     protocol: v.protocol,
     writable: v.writable,
+    volumeWritable: v.volumeWritable,
     mountPoint: v.mountPoint,
   };
 }
@@ -288,4 +339,4 @@ function eject(mountPoint) {
   });
 }
 
-module.exports = { info, brief, mountPointOf, parsePlist, nameProblem, isVolumeSystemItem, eject, forget, TRAITS };
+module.exports = { info, brief, mountPointOf, parseDfMountPoint, parsePlist, nameProblem, isVolumeSystemItem, eject, forget, TRAITS };

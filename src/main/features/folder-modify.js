@@ -181,7 +181,7 @@ async function modifyPlan(ctx, { reference, targets, options = {} }, task) {
     const volume = await ctx.volumes.info(target);
     if (!volume.writable) {
       res.status = "error";
-      res.error = volume.fsType === "ntfs" ? `${volume.name} is formatted NTFS, which macOS can read but not change.` : `${volume.name} is read-only.`;
+      res.error = volume.fsType === "ntfs" ? `${volume.name} is formatted NTFS, which macOS can read but not change.` : volume.volumeWritable ? `You don't have permission to change this folder. Check its permissions in Finder (Get Info › Sharing & Permissions).` : `${volume.name} is read-only.`;
       continue;
     }
     res.tol = Math.max(opts.toleranceMs, volume.granularityMs);
