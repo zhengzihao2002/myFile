@@ -13,7 +13,8 @@ const path = require("node:path");
 const { UserError, checkCancel } = require("../lib/util");
 const { expandMediaPaths, isQuickTime, mediaKind } = require("../lib/media");
 const { bestDate, momentText, momentWithZone } = require("../lib/dates");
-const { applyTimes } = require("../lib/filetimes");
+const { applyTimes, canSetBirthtime } = require("../lib/filetimes");
+const { copyFileExact } = require("../lib/copy");
 const { ignoreFor } = require("../lib/ignore");
 
 const READ_ARGS = [
@@ -117,6 +118,39 @@ function buildWrites(ref, options, movie) {
   return writes;
 }
 
+// Tags that describe the file on disk or are computed, not stored in it.
+const NOT_STORED = /^(System|File|ExifTool|Composite):|^SourceFile$/;
+
+/** Every stored tag of each file, for "Copy every metadata tag". */
+async function readAllTags(ctx, files, signal) {
+  const out = new Map();
+  for (let i = 0; i < files.length; i += 100) {
+    checkCancel(signal);
+    const chunk = files.slice(i, i + 100);
+    const rows = await ctx.et.readJson(chunk, ["-G1", "-a", "-s"], { signal });
+    const bySource = new Map(rows.map((r) => [String(r.SourceFile).normalize("NFC"), r]));
+    for (const file of chunk) {
+      const row = bySource.get(file.normalize("NFC")) || {};
+      const tags = {};
+      for (const [k, v] of Object.entries(row)) if (!NOT_STORED.test(k)) tags[k] = typeof v === "string" ? v : JSON.stringify(v);
+      out.set(file, tags);
+    }
+  }
+  return out;
+}
+
+function sameTags(a, b) {
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every((k) => a[k] === b[k]);
+}
+
+/** The same kind of file, so one can stand in for the other (JPG and JPEG count as one). */
+function sameFormat(a, b) {
+  const norm = (f) => path.extname(f).slice(1).toLowerCase().replace(/^jpe?g$|^jpe$/, "jpg").replace(/^tiff?$/, "tif");
+  return norm(a) === norm(b);
+}
+
 function describe(info) {
   return {
     date: info.date ? momentText(info.date.moment) : "",
@@ -150,27 +184,41 @@ async function copyPlan(ctx, { reference, targets, options = {} }, task) {
   if (opts.gps && !refInfo.gps) warnings.push("The reference has no GPS location, so locations won't change.");
   if (droppedReference) warnings.push("The reference file was also in the targets; it was left out.");
 
-  const rows = files.map((file) => {
+  const allTags = opts.all ? await readAllTags(ctx, [reference, ...files], task.signal) : null;
+  const tol = Math.max(1, ctx.settings.get().toleranceMs || 0);
+  const birthOk = canSetBirthtime();
+  const refMs = refInfo.date ? refInfo.date.moment.ms : null;
+
+  const rows = [];
+  for (const file of files) {
     const info = infos.get(file);
     const cur = describe(info);
-    const writes = buildWrites(refInfo, opts, info.movie);
+    const st = await fs.promises.stat(file).catch(() => null);
     const dateChange = Boolean(opts.date && refInfo.date && cur.date !== ref.date);
     const gpsChange = Boolean(opts.gps && refInfo.gps && cur.gps !== ref.gps);
     const cameraChange = Boolean(opts.camera && Object.keys(refInfo.camera).length && cur.camera !== ref.camera);
-    return {
+    const allChange = Boolean(opts.all && !sameTags(allTags.get(reference), allTags.get(file)));
+    const createdChange = Boolean(opts.fileDates && refMs !== null && st && birthOk && Math.abs(st.birthtimeMs - refMs) > tol);
+    const modifiedChange = Boolean(opts.fileDates && refMs !== null && st && Math.abs(st.mtimeMs - refMs) > tol);
+    const changes = { date: dateChange, gps: gpsChange, camera: cameraChange, all: allChange, fileDates: createdChange || modifiedChange };
+    rows.push({
       path: file,
       name: path.basename(file),
       movie: info.movie,
-      current: cur,
+      current: { ...cur, createdMs: st ? st.birthtimeMs : null, modifiedMs: st ? st.mtimeMs : null },
       next: {
         date: opts.date && refInfo.date ? ref.date : cur.date,
         gps: opts.gps && refInfo.gps ? ref.gps : cur.gps,
         camera: opts.camera && ref.camera ? ref.camera : cur.camera,
+        fileMs: opts.fileDates && refMs !== null ? refMs : null,
       },
-      changes: { date: dateChange, gps: gpsChange, camera: cameraChange },
-      willWrite: writes.length > 0 || opts.all,
-    };
-  });
+      changes,
+      // A file is only written when something about it would actually change.
+      willWrite: Object.values(changes).some(Boolean),
+      // Same kind of file as the reference, so it could be replaced by a copy of it.
+      canRestore: !info.movie && sameFormat(file, reference),
+    });
+  }
 
   return {
     reference: {
@@ -208,12 +256,17 @@ async function copyApply(ctx, { reference, targets, options = {} }, task) {
   const opts = { date: true, gps: true, camera: false, all: false, fileDates: true, ...options };
   const plan = await copyPlan(ctx, { reference, targets, options: opts }, { ...task, progress: () => {} });
   const refInfo = (await readInfos(ctx, [reference], { signal: task.signal })).get(reference);
-  const rows = plan.rows.filter((r) => r.willWrite);
+  // Targets whose picture should be put back to the reference's (it was flipped, rotated…).
+  const restoreSet = new Set((opts.restore || []).map((p) => path.resolve(p).normalize("NFC")));
+  for (const row of plan.rows) row.restore = row.canRestore && restoreSet.has(path.resolve(row.path).normalize("NFC"));
+  const rows = plan.rows.filter((r) => r.willWrite || r.restore);
+  if (!rows.length) throw new UserError("Nothing would change: every target already matches the reference.");
 
   const results = [];
   const undoExif = [];
   const undoTimes = [];
   const succeeded = [];
+  const restored = [];
   let index = 0;
   for (const row of rows) {
     checkCancel(task.signal);
@@ -221,12 +274,26 @@ async function copyApply(ctx, { reference, targets, options = {} }, task) {
     index++;
     const writes = buildWrites(refInfo, opts, row.movie);
     try {
+      if (row.restore) {
+        // The old version goes to the Trash; the target becomes an exact copy of the reference.
+        const tmp = path.join(path.dirname(row.path), `.myfile-restore-${process.pid}-${index}${path.extname(row.path)}`);
+        await copyFileExact(reference, tmp, { signal: task.signal });
+        try {
+          await ctx.trash(row.path);
+        } catch (err) {
+          await fs.promises.rm(tmp, { force: true });
+          throw err;
+        }
+        await fs.promises.rename(tmp, row.path);
+        restored.push(row.path);
+      }
       const st = await fs.promises.lstat(row.path);
       undoTimes.push({ path: row.path, birthMs: st.birthtimeMs, mtimeMs: st.mtimeMs, atimeMs: st.atimeMs });
-      if (!opts.all) undoExif.push({ path: row.path, tags: await snapshotTags(ctx, row.path, writes, task.signal) });
+      if (!opts.all && !row.restore) undoExif.push({ path: row.path, tags: await snapshotTags(ctx, row.path, writes, task.signal) });
       const extraArgs = opts.all ? ["-tagsFromFile", reference, "-all:all"] : [];
-      const res = await ctx.et.write(row.path, writes, { extraArgs, signal: task.signal });
-      results.push({ path: row.path, name: row.name, ok: true, warnings: res.warnings, updated: res.updated > 0 });
+      // A restored file is already a copy of the reference; only its file dates may still need setting.
+      const res = row.restore ? { warnings: [], updated: 1 } : await ctx.et.write(row.path, writes, { extraArgs, signal: task.signal });
+      results.push({ path: row.path, name: row.name, ok: true, restored: row.restore, warnings: res.warnings, updated: res.updated > 0 });
       succeeded.push(row.path);
     } catch (err) {
       if (err.code === "CANCELLED") throw err;
@@ -250,17 +317,18 @@ async function copyApply(ctx, { reference, targets, options = {} }, task) {
   const entry = ctx.history.add({
     type: "exif-copy",
     title: `Copied metadata from ${path.basename(reference)}`,
-    summary: `${ok} of ${rows.length} file${rows.length === 1 ? "" : "s"} updated${opts.all ? " (all metadata)" : ""}`,
-    details: { reference, options: opts, files: results.map((r) => ({ path: r.path, ok: r.ok, error: r.error || null })) },
+    summary: `${ok} of ${rows.length} file${rows.length === 1 ? "" : "s"} updated${opts.all ? " (all metadata)" : ""}${restored.length ? `; ${restored.length} picture${restored.length === 1 ? "" : "s"} restored from the reference (old versions are in the Trash)` : ""}`,
+    details: { reference, options: opts, restored, files: results.map((r) => ({ path: r.path, ok: r.ok, restored: Boolean(r.restored), error: r.error || null })) },
     // "All metadata" rewrites tags we can't list in advance, so it can't be undone.
     undo: opts.all
       ? null
       : {
           exif: undoExif.filter((u) => succeeded.includes(u.path)),
-          times: undoTimes.filter((u) => succeeded.includes(u.path)),
+          // A restored picture's old version is in the Trash; its dates aren't undone here.
+          times: undoTimes.filter((u) => succeeded.includes(u.path) && !restored.includes(u.path)),
         },
   });
-  return { results, ok, failed: results.length - ok, timeFailures, historyId: entry.id, undoable: entry.undoable };
+  return { results, ok, failed: results.length - ok, restored: restored.length, timeFailures, historyId: entry.id, undoable: entry.undoable };
 }
 
 module.exports = { copyPlan, copyApply, readInfos, buildWrites, gpsText, interpret, isMovieFile, snapshotTags };

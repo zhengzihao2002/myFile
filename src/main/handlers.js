@@ -135,6 +135,7 @@ function createHandlers(ctx) {
     "exif.inspect": wrap(exifShow.inspect),
     "exif.preview": wrap(exifShow.preview),
     "exif.poster": wrap(exifShow.poster),
+    "exif.pictureData": wrap(exifShow.pictureData),
     "exif.copyPlan": wrap(exifCopy.copyPlan),
     "exif.copyApply": wrap(exifCopy.copyApply),
     "exif.datesPlan": wrap(exifDates.selfDatePlan),

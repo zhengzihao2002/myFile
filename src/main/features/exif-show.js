@@ -197,24 +197,30 @@ async function extractEmbedded(ctx, file, dest) {
   return false;
 }
 
+/** A JPEG version of a HEIC, RAW, TIFF or similar photo, cached in the data folder. Null if none can be made. */
+async function convertedImage(ctx, file) {
+  const st = await fs.promises.stat(file);
+  await fs.promises.mkdir(ctx.runtime.previewDir, { recursive: true });
+  const dest = path.join(ctx.runtime.previewDir, cacheName(file, st, ".jpg"));
+  if (fs.existsSync(dest)) return { file: dest, embedded: false };
+  if (IS_MAC) {
+    try {
+      await run("/usr/bin/sips", ["-s", "format", "jpeg", "-s", "formatOptions", "85", "-Z", "2400", file, "--out", dest]);
+      if (fs.existsSync(dest)) return { file: dest, embedded: false };
+    } catch {
+      // fall through to the embedded preview
+    }
+  }
+  if (await extractEmbedded(ctx, file, dest)) return { file: dest, embedded: true };
+  return null;
+}
+
 /** Makes a browser-viewable preview for HEIC, RAW, TIFF and similar files. */
 async function preview(ctx, { path: file }) {
-  const st = await fs.promises.stat(file);
   const kind = mediaKind(file);
-  await fs.promises.mkdir(ctx.runtime.previewDir, { recursive: true });
-
   if (kind === "image") {
-    const dest = path.join(ctx.runtime.previewDir, cacheName(file, st, ".jpg"));
-    if (fs.existsSync(dest)) return { type: "image", url: ctx.fileUrl(dest), converted: true };
-    if (IS_MAC) {
-      try {
-        await run("/usr/bin/sips", ["-s", "format", "jpeg", "-s", "formatOptions", "85", "-Z", "2400", file, "--out", dest]);
-        if (fs.existsSync(dest)) return { type: "image", url: ctx.fileUrl(dest), converted: true };
-      } catch {
-        // fall through to the embedded preview
-      }
-    }
-    if (await extractEmbedded(ctx, file, dest)) return { type: "image", url: ctx.fileUrl(dest), converted: true, embedded: true };
+    const img = await convertedImage(ctx, file);
+    if (img) return { type: "image", url: ctx.fileUrl(img.file), converted: true, embedded: img.embedded };
     return { type: "none", note: "No preview is available for this file type." };
   }
 
@@ -246,4 +252,24 @@ async function poster(ctx, { path: file }) {
   return { type: "none", note: "This video can't be played here. Open it in QuickTime Player instead." };
 }
 
-module.exports = { inspect, preview, poster, humanizeTag };
+const PICTURE_MAX_BYTES = 80 * 1024 * 1024;
+
+/**
+ * The picture of a photo as base64 JPEG/PNG/... bytes the window can decode,
+ * for comparing what two photos look like. Null for videos and unknown types.
+ */
+async function pictureData(ctx, { path: file }) {
+  if (mediaKind(file) !== "image") return null;
+  const ext = path.extname(file).slice(1).toLowerCase();
+  let src = file;
+  if (!BROWSER_IMAGE.has(ext) || ext === "svg") {
+    const img = await convertedImage(ctx, file);
+    if (!img) return null;
+    src = img.file;
+  }
+  const st = await fs.promises.stat(src);
+  if (st.size > PICTURE_MAX_BYTES) return null;
+  return { base64: (await fs.promises.readFile(src)).toString("base64") };
+}
+
+module.exports = { inspect, preview, poster, pictureData, humanizeTag };

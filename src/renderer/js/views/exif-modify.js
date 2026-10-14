@@ -108,9 +108,80 @@
         { label: "File", width: "minmax(180px, 1.1fr)", render: fileCell, title: (r) => r.path },
         { label: "Date taken", width: "minmax(220px, 1.4fr)", render: (r) => (options.date ? MF.Change(fmt.exif(r.current.date), fmt.exif(r.next.date)) : h("span.faint", "not copied")) },
         { label: "Location", width: "minmax(200px, 1.2fr)", render: (r) => (options.gps ? MF.Change(r.current.gps, r.next.gps) : h("span.faint", "not copied")) },
-        { label: "Status", width: "120px", render: (r) => (r.changes.date || r.changes.gps || r.changes.camera ? h("span.badge.accent", "Will change") : h("span.badge.green", icon("check"), "Up to date")) },
+        { label: "File dates", width: "minmax(130px, 0.7fr)", render: (r) => (!options.fileDates || r.next.fileMs === null ? h("span.faint", "not set") : r.changes.fileDates ? h("span", { title: `Created ${fmt.date(r.current.createdMs)}\nModified ${fmt.date(r.current.modifiedMs)}\n→ ${fmt.date(r.next.fileMs)}` }, "Will be set") : h("span.faint", "already right")) },
+        { label: "Picture", width: "minmax(200px, 1fr)", render: pictureCell },
+        { label: "Status", width: "120px", render: (r) => (willChange(r) ? h("span.badge.accent", "Will change") : h("span.badge.green", icon("check"), "Up to date")) },
       ],
     });
+    // What each target looks like compared with the reference (filled in after the preview).
+    let pictures = new Map();
+    let pictureRun = 0;
+    let restoreOn = false;
+    const restoreBox = h("div");
+
+    function pictureCell(r) {
+      if (r.movie) return h("span.faint", "—");
+      const p = pictures.get(r.path);
+      if (!p) return h("span.faint", "checking…");
+      if (p.status === "same") return h("span.badge.green", icon("check"), "Same picture");
+      if (p.status === "transformed") return h("span.badge.red", { title: "It's the reference's picture, but turned. Copying metadata doesn't change the picture." }, icon("alert"), p.label);
+      if (p.status === "different") return h("span.faint", { title: "A different photo from the reference; that's normal when copying a date or place to other photos." }, "Different photo");
+      return h("span.faint", "can't compare");
+    }
+
+    const toRestore = (r) => restoreOn && r.canRestore && pictures.get(r.path) && pictures.get(r.path).status === "transformed";
+    const willChange = (r) => r.willWrite || toRestore(r);
+
+    async function checkPictures(forPlan) {
+      const runId = ++pictureRun;
+      pictures = new Map();
+      renderRestore();
+      if (forPlan.reference.movie) {
+        for (const r of forPlan.rows) pictures.set(r.path, { status: "unknown" });
+        table.setRows(forPlan.rows);
+        return;
+      }
+      const refSig = await MF.picture.signature(forPlan.reference.path);
+      const photos = forPlan.rows.filter((r) => !r.movie);
+      for (const r of photos) {
+        if (runId !== pictureRun) return;
+        const sig = refSig ? await MF.picture.signature(r.path) : null;
+        pictures.set(r.path, sig && refSig ? MF.picture.compare(refSig, sig) : { status: "unknown" });
+      }
+      if (runId !== pictureRun) return;
+      table.setRows(forPlan.rows);
+      renderRestore();
+      update();
+    }
+
+    function renderRestore() {
+      const turned = plan ? plan.rows.filter((r) => pictures.get(r.path) && pictures.get(r.path).status === "transformed") : [];
+      if (!turned.length) {
+        restoreOn = false;
+        return replace(restoreBox);
+      }
+      const fixable = turned.filter((r) => r.canRestore);
+      const names = turned.slice(0, 3).map((r) => `${r.name} (${pictures.get(r.path).label.toLowerCase()})`).join(", ");
+      replace(
+        restoreBox,
+        MF.Callout(
+          "amber",
+          h("div", h("b", `${fmt.plural(turned.length, "target")} ${turned.length === 1 ? "shows" : "show"} the reference's picture flipped or rotated: `), names, turned.length > 3 ? "…" : "", ". Copying metadata only changes the information inside a file, not the picture."),
+          fixable.length
+            ? MF.Option({
+                title: `Restore ${fixable.length === 1 ? "this picture" : `these ${fixable.length} pictures`} from the reference`,
+                desc: "Each one is replaced by an exact copy of the reference. The current version is moved to the Trash, so you can get it back.",
+                checked: restoreOn,
+                onChange: (v) => {
+                  restoreOn = v;
+                  table.setRows(plan.rows);
+                  update();
+                },
+              }).el
+            : h("div.muted.small", "They're a different file type from the reference, so they can't be replaced by a copy of it."),
+        ),
+      );
+    }
     const result = h("div");
     const summary = h("div.summary");
     const applyBtn = MF.Button("Apply", { kind: "primary", size: "lg", iconName: "check", disabled: true, onClick: apply });
@@ -130,6 +201,7 @@
         h("div", { style: { marginTop: "10px", borderTop: "1px solid var(--line)" } }, fileDates.el, all.el),
       ),
       h("div.card", previewHead, table.el),
+      restoreBox,
       result,
       h("div.actionbar", summary, h("span.spacer"), applyBtn),
     );
@@ -167,6 +239,9 @@
       const targets = tgtDrop.paths;
       if (!reference) {
         plan = null;
+        pictureRun++;
+        pictures = new Map();
+        renderRestore();
         renderReference(null);
         table.setRows([]);
         update();
@@ -183,6 +258,7 @@
         if (mine !== job) return;
         renderReference(plan.reference);
         table.setRows(plan.rows);
+        checkPictures(plan);
         replace(right, plan.warnings.length ? h("span.badge.amber", { title: plan.warnings.join("\n") }, icon("alert"), plan.warnings[0]) : null);
         if (plan.skipped.length) MF.toast(`${plan.skipped.length} item(s) skipped`, { kind: "warn", detail: plan.skipped.slice(0, 3).map((s) => `${fmt.base(s.path)}: ${s.reason}`).join("\n") });
       } catch (err) {
@@ -197,26 +273,32 @@
 
     function update() {
       const n = plan ? plan.rows.length : 0;
-      const changing = plan ? plan.rows.filter((r) => r.changes.date || r.changes.gps || r.changes.camera).length : 0;
-      applyBtn.disabled = !n || (!options.date && !options.gps && !options.camera && !options.all);
-      replace(applyBtn.querySelector("span"), n ? `Apply to ${fmt.plural(n, "file")}` : "Apply");
-      replace(summary, n ? h("span", h("b", fmt.num(changing)), ` of ${fmt.plural(n, "file")} will change`) : "Choose a reference and targets.");
+      const changing = plan ? plan.rows.filter(willChange).length : 0;
+      // Nothing to write when every target already matches.
+      applyBtn.disabled = !changing;
+      replace(applyBtn.querySelector("span"), changing ? `Apply to ${fmt.plural(changing, "file")}` : "Apply");
+      replace(
+        summary,
+        !n ? "Choose a reference and targets." : changing ? h("span", h("b", fmt.num(changing)), ` of ${fmt.plural(n, "file")} will change`) : h("span", icon("check"), ` All ${fmt.plural(n, "file")} already match the reference. Nothing to apply.`),
+      );
     }
 
     async function apply() {
       if (!plan) return;
-      const n = plan.rows.length;
+      const n = plan.rows.filter(willChange).length;
+      if (!n) return;
+      const restore = plan.rows.filter(toRestore).map((r) => r.path);
       const ok = await MF.confirm({
         title: `Write to ${fmt.plural(n, "file")}?`,
         message: options.all
           ? "Every metadata tag from the reference is copied into each target. This can't be undone."
-          : "Dates, locations and camera details are written inside each file. You can undo this from the result or from History.",
+          : `Dates, locations and camera details are written inside each file. You can undo this from the result or from History.${restore.length ? ` ${fmt.plural(restore.length, "picture")} will be replaced by a copy of the reference; the current version goes to the Trash.` : ""}`,
         confirm: "Apply",
         iconName: "wand",
       });
       if (!ok) return;
       try {
-        const res = await MF.busy("Writing metadata…", "exif.copyApply", { reference: refDrop.paths[0], targets: tgtDrop.paths, options }, (p) => ({
+        const res = await MF.busy("Writing metadata…", "exif.copyApply", { reference: refDrop.paths[0], targets: tgtDrop.paths, options: { ...options, restore } }, (p) => ({
           ratio: p.total ? p.done / p.total : null,
           left: p.phase === "dates" ? "Setting file dates" : `${fmt.num(p.done || 0)} of ${fmt.num(p.total || 0)}`,
           current: p.current,
@@ -226,7 +308,7 @@
           result,
           undoCallout(
             failed.length ? "amber" : "green",
-            h("span", h("b", `${fmt.plural(res.ok, "file")} updated.`), failed.length ? ` ${failed.length} failed: ${failed.slice(0, 3).map((f) => `${f.name} (${f.error})`).join(", ")}` : " Their metadata now matches the reference."),
+            h("span", h("b", `${fmt.plural(res.ok, "file")} updated.`), failed.length ? ` ${failed.length} failed: ${failed.slice(0, 3).map((f) => `${f.name} (${f.error})`).join(", ")}` : `${res.restored ? ` ${fmt.plural(res.restored, "picture")} restored from the reference.` : ""} Their metadata now matches the reference.`),
             res.undoable ? res.historyId : null,
             () => refresh(),
           ),

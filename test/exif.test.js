@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { makeJpeg, makeMovie, tmpDir, testContext, readTags, setMtime } = require("./helpers");
 
-const { ctx, et, call } = testContext();
+const { ctx, et, call, trashed } = testContext();
 test.after(() => et.close());
 
 async function tagRef(file) {
@@ -133,4 +133,61 @@ test("set file dates from each file's own EXIF date", async () => {
   const again = await call("exif.datesPlan", { paths: [dir] });
   assert.equal(again.counts.change, 0, "applying again finds nothing left to change");
   assert.ok(ctx.history.list().some((e) => e.id === res.historyId));
+});
+
+test("targets that already match the reference are not written, and Apply refuses when none would change", async () => {
+  const dir = tmpDir("nochange");
+  const ref = makeJpeg(path.join(dir, "ref.jpg"));
+  await tagRef(ref);
+  const twin = path.join(dir, "t", "twin.jpg");
+  fs.mkdirSync(path.dirname(twin));
+  fs.copyFileSync(ref, twin);
+  const refMs = Date.UTC(2021, 6, 4, 22, 30, 45, 250);
+  setMtime(twin, refMs);
+
+  const plan = await call("exif.copyPlan", { reference: ref, targets: [twin], options: { fileDates: true } });
+  const row = plan.rows[0];
+  assert.equal(row.changes.date, false);
+  assert.equal(row.changes.gps, false);
+  assert.equal(row.changes.fileDates, false, "modified date already equals the reference date (created dates can't be checked off macOS)");
+  assert.equal(row.willWrite, false);
+  await assert.rejects(call("exif.copyApply", { reference: ref, targets: [twin], options: { fileDates: true } }), /Nothing would change/);
+
+  // A file date that differs is a change on its own.
+  setMtime(twin, refMs - 86400e3);
+  const plan2 = await call("exif.copyPlan", { reference: ref, targets: [twin], options: { fileDates: true } });
+  assert.equal(plan2.rows[0].changes.fileDates, true);
+  assert.equal(plan2.rows[0].willWrite, true);
+
+  // "Copy every tag": the same tags means nothing to do.
+  setMtime(twin, refMs);
+  const plan3 = await call("exif.copyPlan", { reference: ref, targets: [twin], options: { all: true } });
+  assert.equal(plan3.rows[0].changes.all, false);
+  await et.write(twin, [["Artist", "Someone else"]]);
+  setMtime(twin, refMs);
+  const plan4 = await call("exif.copyPlan", { reference: ref, targets: [twin], options: { all: true } });
+  assert.equal(plan4.rows[0].changes.all, true);
+});
+
+test("a target whose picture was changed can be restored from the reference; the old one goes to the Trash", async () => {
+  const dir = tmpDir("restore");
+  const ref = makeJpeg(path.join(dir, "ref.jpg"));
+  await tagRef(ref);
+  const flipped = path.join(dir, "t", "flipped.jpg");
+  fs.mkdirSync(path.dirname(flipped));
+  fs.copyFileSync(ref, flipped);
+  await et.write(flipped, [["Artist", "edited copy"]]);
+  const movie = makeMovie(path.join(dir, "t", "clip.mov"));
+
+  const plan = await call("exif.copyPlan", { reference: ref, targets: [flipped, movie] });
+  assert.equal(plan.rows.find((r) => r.name === "flipped.jpg").canRestore, true);
+  assert.equal(plan.rows.find((r) => r.name === "clip.mov").canRestore, false);
+
+  const before = trashed.length;
+  const res = await call("exif.copyApply", { reference: ref, targets: [flipped], options: { restore: [flipped] } });
+  assert.equal(res.restored, 1, JSON.stringify(res.results));
+  assert.ok(fs.readFileSync(flipped).equals(fs.readFileSync(ref)), "target is now an exact copy of the reference");
+  assert.equal(trashed.length, before + 1);
+  assert.equal(trashed[trashed.length - 1], flipped);
+  assert.deepEqual(fs.readdirSync(path.dirname(flipped)).filter((n) => n.startsWith(".myfile-restore")), []);
 });
