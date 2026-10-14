@@ -52,7 +52,7 @@
           value: s.compareContent,
           options: [
             { value: "smart", label: "Smart · recommended", title: "Same size and date = identical; same size but different date = read both" },
-            { value: "thorough", label: "Every byte · slowest", title: "Read and compare every pair of same-size files" },
+            { value: "thorough", label: "Every byte · strictest", title: "Read and compare every pair of same-size files" },
             { value: "size", label: "Size only · fastest", title: "Same size = identical; nothing is read" },
           ],
           onChange: (v) => save({ compareContent: v }),

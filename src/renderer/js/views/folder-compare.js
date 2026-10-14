@@ -36,11 +36,15 @@
         icon("swap"),
       );
       // What each content check does, shown under the choice.
+      // EXIF dates, GPS and every other tag live inside the file's bytes, so
+      // only reading the bytes catches every edit. Created/modified dates are
+      // file-system data and are compared in every mode ("Different dates").
       const MODES = {
-        smart: { label: "Smart", hint: "recommended", text: [h("b", "Same size and same modified date"), " count as identical. If the size matches but the date doesn't, both files are read to be sure."] },
-        thorough: { label: "Every byte", hint: "slowest", text: [h("b", "Reads every pair of same-size files"), " and compares them byte by byte. The most certain, and the slowest on big folders."] },
-        size: { label: "Size only", hint: "fastest", text: [h("b", "Same size counts as identical"), "; nothing is read. Fastest, but an edit that keeps the size (like a changed EXIF date) is missed."] },
+        smart: { label: "Smart", hint: "recommended", text: [h("b", "Same size and same modified date"), " count as identical without reading them; if only the date differs, both files are read. Misses an edit inside a file (EXIF date, GPS) only if the size and modified date stayed the same."] },
+        thorough: { label: "Every byte", hint: "strictest", text: [h("b", "Reads and compares every pair of same-size files."), " Catches any difference inside the files, including EXIF dates and GPS. Slowest on big folders."] },
+        size: { label: "Size only", hint: "fastest", text: [h("b", "Same size counts as identical"), "; nothing is read. Fastest, but most EXIF or GPS edits keep the size, so they're missed."] },
       };
+      const datesNote = h("div.mode-help", { style: { marginTop: "4px" } }, icon("calendar"), h("span", "Created and modified dates are compared in every mode and listed under ", h("b", "Different dates"), "."));
       const modeHelp = h("div.mode-help");
       const showHelp = (v) => replace(modeHelp, icon("info"), h("span", ...MODES[v].text));
       const modeSeg = MF.Segmented({
@@ -65,7 +69,7 @@
           h(
             "div.row",
             { style: { flexWrap: "wrap", gap: "18px" } },
-            h("div", h("div", { style: { fontWeight: "650", marginBottom: "6px" } }, "How to decide two files are the same"), modeSeg.el, modeHelp),
+            h("div", h("div", { style: { fontWeight: "650", marginBottom: "6px" } }, "How to decide two files are the same"), modeSeg.el, modeHelp, datesNote),
             h("div", { style: { flex: "1", minWidth: "220px" } }, sysOpt.el),
             runBtn,
           ),
