@@ -140,3 +140,16 @@ test("modify can use an HTML index as the reference", async () => {
   assert.ok(Math.abs(fs.statSync(path.join(target, "x", "y.txt")).mtimeMs - T1) < 2);
   assert.ok(Math.abs(fs.statSync(target).mtimeMs - T1) < 2);
 });
+
+test("smart compare reads files whose created dates differ, even with the same size and modified date", async (t) => {
+  const a = makeTree(tmpDir("smartA"), { "photo.txt": "abcde" });
+  await new Promise((r) => setTimeout(r, 30));
+  const b = makeTree(tmpDir("smartB"), { "photo.txt": "abcdX" });
+  const ba = fs.statSync(path.join(a, "photo.txt")).birthtimeMs;
+  const bb = fs.statSync(path.join(b, "photo.txt")).birthtimeMs;
+  if (!(ba > 0 && bb > 0 && Math.abs(ba - bb) > 1)) return t.skip("file system has no created dates");
+  setMtime(path.join(a, "photo.txt"), T1);
+  setMtime(path.join(b, "photo.txt"), T1);
+  const r = await call("folder.compare", { a, b, content: "smart" });
+  assert.deepEqual(r.changed.map((x) => [x.rel, x.reason]), [["photo.txt", "content"]]);
+});

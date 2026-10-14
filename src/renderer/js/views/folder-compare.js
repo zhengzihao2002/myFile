@@ -40,11 +40,11 @@
       // only reading the bytes catches every edit. Created/modified dates are
       // file-system data and are compared in every mode ("Different dates").
       const MODES = {
-        smart: { label: "Smart", hint: "recommended", text: [h("b", "Same size and same modified date"), " count as identical without reading them; otherwise both files are read. The modified date is used because editing a file normally updates it; the created date doesn't change on edits, so it can't tell whether the contents changed. Misses an edit only if it kept both the size and the modified date (tools that preserve dates, like myFile’s EXIF copy, can do that; use Every byte then)."] },
+        smart: { label: "Smart", hint: "recommended", text: [h("b", "Same size, modified date and created date"), " count as identical without reading them; if any of these differ, both files are read. Misses an edit inside a file (EXIF date, GPS) only if it kept the size and both dates the same."] },
         thorough: { label: "Every byte", hint: "strictest", text: [h("b", "Reads and compares every pair of same-size files."), " Catches any difference inside the files, including EXIF dates and GPS. Slowest on big folders."] },
         size: { label: "Size only", hint: "fastest", text: [h("b", "Same size counts as identical"), "; nothing is read. Fastest, but most EXIF or GPS edits keep the size, so they're missed."] },
       };
-      const datesNote = h("div.mode-help", { style: { marginTop: "4px" } }, icon("calendar"), h("span", "Separately, created and modified dates are compared in every mode and listed under ", h("b", "Different dates"), ". The mode only decides how file contents are checked."));
+      const datesNote = h("div.mode-help", { style: { marginTop: "4px" } }, icon("calendar"), h("span", "Created and modified dates are also compared in every mode and listed under ", h("b", "Different dates"), "."));
       const modeHelp = h("div.mode-help");
       const showHelp = (v) => replace(modeHelp, icon("info"), h("span", ...MODES[v].text));
       const modeSeg = MF.Segmented({
