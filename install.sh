@@ -153,6 +153,13 @@ install_packages() {
   note "this downloads about 120 MB the first time"
   (cd "$MYFILE_ROOT" && npm ci --no-audit --no-fund --loglevel=error) \
     || die "npm could not install the packages. See the messages above."
+  # Since Electron 44 the npm package no longer downloads the runtime by
+  # itself; its install script does that (into the cache set in env.sh).
+  if [ ! -d "$MYFILE_ROOT/node_modules/electron/dist/Electron.app" ]; then
+    note "downloading the Electron runtime"
+    (cd "$MYFILE_ROOT" && node node_modules/electron/install.js) \
+      || die "Electron could not be downloaded. Check your internet connection and run the installer again."
+  fi
   [ -d "$MYFILE_ROOT/node_modules/electron/dist/Electron.app" ] \
     || die "Electron did not finish downloading. Run the installer again."
   echo "$want" > "$stamp"
