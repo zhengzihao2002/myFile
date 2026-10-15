@@ -472,7 +472,7 @@
             h(
               "div",
               h("h3", good ? "Sync complete · verified" : "Sync finished with some problems"),
-              h("p", `${fmt.size(res.bytesWritten)} written to ${fmt.plural(res.targets.length, "target")} in ${fmt.duration(res.elapsedMs)} · extra space used: ${fmt.size(Math.max(0, res.spaceUsed))}`),
+              h("p", `${fmt.size(res.bytesWritten)} of files copied to ${fmt.plural(res.targets.length, "target")} in ${fmt.duration(res.elapsedMs)}${res.targets.every((t) => t.cloned || !t.bytesWritten) ? "" : ` · extra space used: about ${fmt.size(Math.max(0, res.targets.filter((t) => !t.cloned).reduce((s, t) => s + (t.spaceUsed || 0), 0)))}`}`),
             ),
             h("div.actions", MF.Button("Analyze again", { iconName: "refresh", onClick: analyze })),
           ),
@@ -481,11 +481,19 @@
             "div.report-hero",
             res.targets.map((r) => {
               const used = r.spaceUsed;
-              const cloned = used !== null && r.bytesWritten > 0 && used < r.bytesWritten * 0.5;
+              // Free space is for the whole disk, so other apps' writes show up too; small numbers are noise.
+              const noisy = used === null || Math.abs(used) < 1024 * 1024;
+              const refName = res.reference ? res.reference.name : "the reference";
+              const headline = r.cloned
+                ? h("div.used-big", fmt.size(r.bytesWritten), " ", h("small", `· shares space with ${refName}`))
+                : h("div.used-big", used === null ? "—" : noisy && r.bytesWritten ? `≈ ${fmt.size(r.bytesWritten)}` : `${used >= 0 ? "+" : "−"}${fmt.size(Math.abs(used))}`, " ", h("small", "extra space used"));
+              const note = r.cloned
+                ? `On the same APFS disk, copies are clones: they take no extra space until one of them is changed. Disk free space changed by ${used === null ? "—" : fmt.size(Math.abs(used))} (folder records and other activity on the Mac).`
+                : `${fmt.size(r.bytesWritten)} of files copied${noisy && used !== null && r.bytesWritten ? ` · disk free space changed by ${fmt.size(Math.abs(used))}, which also includes other activity on the Mac` : ""}`;
               return h(
                 "div.card.tcard",
                 h("div.top", h("div.disk", icon("disk")), h("div", { style: { minWidth: "0", flex: "1" } }, h("div.tn", r.name), h("div.tp", { title: r.root }, r.root))),
-                h("div", { style: { marginTop: "14px" } }, h("div.used-big", used === null ? "—" : `${used >= 0 ? "+" : "−"}${fmt.size(Math.abs(used))}`, " ", h("small", "extra space used")), h("div.small.muted", `${fmt.size(r.bytesWritten)} of data written${cloned ? " · same-disk files were cloned and share space with the reference" : ""}`)),
+                h("div", { style: { marginTop: "14px" } }, headline, h("div.small.muted", note)),
                 usageBars(r),
                 h(
                   "div.opchips",

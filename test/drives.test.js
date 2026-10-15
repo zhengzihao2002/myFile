@@ -185,3 +185,17 @@ test("a folder you can write to is writable; one you can't says so without blami
     fs.chmodSync(locked, 0o755);
   }
 });
+
+test("copies on the reference's own APFS disk are reported as clones; an external drive's are not", async () => {
+  const ref = makeRef();
+  const same = tmpDir("sameDisk");
+  const drive = tmpDir("T9");
+  await withDrives({ [drive]: { fsType: "exfat", fsLabel: "ExFAT", xattrs: false, granularityMs: 10, restrictNames: true } }, async () => {
+    const plan = await call("sync.analyze", { reference: ref, targets: [same, drive], options: {} });
+    const res = await call("sync.run", { planId: plan.id });
+    const [a, b] = res.targets;
+    assert.ok(a.bytesWritten > 0 && b.bytesWritten > 0);
+    assert.equal(a.cloned, true, "same disk as the reference");
+    assert.equal(b.cloned, false, "external drive");
+  });
+});

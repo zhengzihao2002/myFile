@@ -749,6 +749,9 @@ async function run(ctx, { planId }, task) {
       res.verify = await verifyTarget(ref, t, included, { ...plan.options, toleranceMs: info.tol, skipRoot: info.isVolumeRoot }, task.signal);
       res.spaceAfter = await diskSpace(t.path);
       res.spaceUsed = res.spaceBefore.free !== null && res.spaceAfter.free !== null ? res.spaceBefore.free - res.spaceAfter.free : null;
+      // Same APFS disk as the reference: copies are clones that share its storage.
+      const refVol = plan.reference.volume;
+      res.cloned = Boolean(res.bytesWritten > 0 && volume.fsType === "apfs" && refVol && refVol.mountPoint === volume.mountPoint);
     }
   } finally {
     if (release) release();

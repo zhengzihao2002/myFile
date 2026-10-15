@@ -302,6 +302,7 @@ function brief(v) {
     name: v.name,
     model: v.model,
     fsLabel: v.fsLabel,
+    fsType: v.fsType,
     external: v.external,
     solidState: v.solidState,
     protocol: v.protocol,
