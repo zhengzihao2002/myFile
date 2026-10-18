@@ -578,7 +578,9 @@ async function run(ctx, { planId }, task) {
   const totalFiles = plan.targets.reduce((s, t) => s + t.stats.copy + t.stats.replace, 0);
   let doneBytes = 0;
   let doneFiles = 0;
-  const report = throttle((p) => task.progress({ doneBytes, totalBytes, doneFiles, totalFiles, ...p }), 120);
+  // Files being copied right now (several at once), oldest first.
+  const active = new Set();
+  const report = throttle((p) => task.progress({ doneBytes, totalBytes, doneFiles, totalFiles, active: [...active], ...p }), 120);
   const results = [];
   // Long copies to an external drive shouldn't stop because the Mac dozes off.
   const release = ctx.keepAwake ? ctx.keepAwake() : null;
@@ -670,6 +672,7 @@ async function run(ctx, { planId }, task) {
           const dest = abs(a.rel);
           const tmp = path.join(path.dirname(dest), partialName(path.basename(dest)));
           let counted = 0;
+          active.add(a.rel);
           report({ phase: "copy", target: t.name, targetIndex: t.index, current: a.rel });
           try {
             await copyFileExact(r.path, tmp, {
@@ -700,9 +703,11 @@ async function run(ctx, { planId }, task) {
             doneBytes -= counted;
             if (err.code === "CANCELLED" || (task.signal && task.signal.aborted)) throw err;
             fail(a.rel, err);
+          } finally {
+            active.delete(a.rel);
           }
           doneFiles++;
-          report({ phase: "copy", target: t.name, targetIndex: t.index, current: a.rel });
+          report({ phase: "copy", target: t.name, targetIndex: t.index, current: [...active][0] || a.rel });
         },
         task.signal,
       );

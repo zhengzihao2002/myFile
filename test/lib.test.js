@@ -93,3 +93,16 @@ test("build-app renames Electron.app and its helpers to myFile", () => {
   assert.equal(pkg.main, "src/main/main.js");
   assert.match(pkg.myfile.exiftool, /^\d+\.\d+/);
 });
+
+test("throttle never delivers an empty update after a newer one was already sent", async () => {
+  const { throttle } = require("../src/main/lib/util");
+  const got = [];
+  const t = throttle((v) => got.push(v), 30);
+  t(1); // immediate
+  t(2); // scheduled
+  await new Promise((r) => setTimeout(r, 40));
+  t(3); // immediate (window passed); the old timer must not fire an empty update
+  await new Promise((r) => setTimeout(r, 60));
+  assert.ok(got.every((v) => v !== null && v !== undefined), JSON.stringify(got));
+  assert.deepEqual(got.slice(-1), [3]);
+});

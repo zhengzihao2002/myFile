@@ -52,7 +52,10 @@ function throttle(fn, ms = 120) {
   let pending = null;
   let timer = null;
   const fire = () => {
+    if (timer) clearTimeout(timer);
     timer = null;
+    // A newer call may already have delivered this value.
+    if (pending === null) return;
     last = Date.now();
     const value = pending;
     pending = null;
@@ -66,6 +69,7 @@ function throttle(fn, ms = 120) {
   };
   call.flush = () => {
     if (timer) clearTimeout(timer);
+    timer = null;
     if (pending !== null) fire();
   };
   return call;

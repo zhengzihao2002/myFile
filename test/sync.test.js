@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { makeTree, tmpDir, testContext, setMtime } = require("./helpers");
 
-const { et, call, trashed } = testContext();
+const { et, call, trashed, task, handlers } = testContext();
 test.after(() => et.close());
 
 const T1 = Date.UTC(2019, 1, 2, 3, 4, 5, 250);
@@ -151,4 +151,25 @@ test("reference tree lists children with sizes for the picker", async () => {
   assert.equal(tree.children[0].size, 12);
   const kids = await call("sync.children", { reference: ref, rel: "Albums" });
   assert.deepEqual(kids.map((k) => k.rel), ["Albums/2019"]);
+});
+
+test("progress lists the files being copied at once, never more than the copy concurrency", async () => {
+  const files = {};
+  for (let i = 0; i < 12; i++) files[`clip${i}.bin`] = Buffer.alloc(24 * 1024 * 1024, i).toString("latin1");
+  const ref = makeTree(tmpDir("actRef"), files);
+  const target = tmpDir("actTarget");
+  const plan = await call("sync.analyze", { reference: ref, targets: [target], options: {} });
+  const seen = [];
+  const saved = task.progress;
+  task.progress = (p) => p.phase === "copy" && seen.push(p);
+  try {
+    await handlers["sync.run"]({ planId: plan.id }, task);
+  } finally {
+    task.progress = saved;
+  }
+  assert.ok(seen.length > 0);
+  assert.ok(seen.every((p) => Array.isArray(p.active) && p.active.length <= 4), "at most 4 at once");
+  assert.ok(seen.some((p) => p.active.length > 1), "several files are in flight together");
+  // Progress is throttled, so quick copies don't all show up; the ones shown are real file names.
+  assert.ok(seen.flatMap((p) => p.active).every((n) => /^clip\d+\.bin$/.test(n)));
 });

@@ -340,7 +340,14 @@
         }
         left.textContent = d.left || "";
         right.textContent = d.right || "";
-        current.textContent = d.current || "";
+        if (Array.isArray(d.active) && d.active.length) {
+          // Several files at once: one stable line per file.
+          current.classList.add("multi");
+          replace(current, d.active.slice(0, 4).map((name) => h("div", name)));
+        } else {
+          current.classList.remove("multi");
+          current.textContent = d.current || "";
+        }
       },
     });
     cancelBtn.addEventListener("click", () => {

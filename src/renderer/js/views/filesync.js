@@ -423,11 +423,12 @@
             const eta = rate > 0 ? ((p.totalBytes - p.doneBytes) / rate) * 1000 : null;
             const labels = { remove: "Moving old items to the Trash", copy: "Copying", dates: "Setting dates", verify: "Verifying" };
             return {
-              label: `${labels[p.phase] || "Working"}${p.target ? ` · ${p.target}` : ""}`,
+              label: p.phase === "copy" && p.active && p.active.length > 1 ? `Copying ${p.active.length} files at once${p.target ? ` · ${p.target}` : ""}` : `${labels[p.phase] || "Working"}${p.target ? ` · ${p.target}` : ""}`,
               ratio: p.totalBytes ? p.doneBytes / p.totalBytes : p.phase === "verify" ? 1 : null,
-              left: p.totalBytes ? `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)} · ${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files` : "",
+              left: p.totalBytes ? `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)} · ${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files finished${p.active && p.active.length > 1 ? " (the rest are in progress or waiting)" : ""}` : "",
               right: rate ? `${fmt.size(rate)}/s${eta !== null ? ` · ${fmt.duration(eta)} left` : ""}` : "",
               current: p.current,
+              active: p.phase === "copy" ? p.active : null,
             };
           });
           renderReport(res);
