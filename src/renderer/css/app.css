@@ -555,14 +555,22 @@ select.select {
   animation: fade 0.2s;
 }
 @keyframes fade { from { opacity: 0; } }
-.busy-card { width: min(520px, 90vw); padding: 22px 22px 18px; border-radius: var(--r-xl); background: var(--surface); box-shadow: var(--shadow-3); border: 1px solid var(--line); animation: pop 0.25s var(--ease); }
+.busy-card { width: min(560px, 92vw); padding: 22px 22px 18px; border-radius: var(--r-xl); background: var(--surface); box-shadow: var(--shadow-3); border: 1px solid var(--line); animation: pop 0.25s var(--ease); }
 @keyframes pop { from { opacity: 0; transform: scale(0.97) translateY(6px); } }
 .busy-card .title { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 14.5px; }
 .busy-card .title .spinner { width: 18px; height: 18px; border: 2.5px solid var(--accent-soft); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
-.busy-card .detail { margin: 14px 0 8px; display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.busy-card .bar-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.busy-card .bar-row .progress { flex: 1; min-width: 0; }
+.busy-card .pct { width: 44px; flex: none; text-align: right; font-weight: 650; font-size: 13px; font-variant-numeric: tabular-nums; }
+.busy-card .detail { margin-top: 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 16px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.busy-card .detail .l { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.busy-card .detail .r { flex: none; }
+.busy-card .sub { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.busy-card .sub:empty, .busy-card .detail:empty { display: none; }
 .busy-card .current.multi { direction: ltr; white-space: normal; }
 .busy-card .current.multi > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
-.busy-card .current { margin-top: 8px; color: var(--faint); font-size: 11.5px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; min-height: 16px; }
+.busy-card .current:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.busy-card .current { margin-top: 0; color: var(--faint); font-size: 11.5px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; min-height: 16px; }
 .busy-card .foot { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 
 /* Toasts */

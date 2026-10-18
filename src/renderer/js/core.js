@@ -313,13 +313,15 @@
 
   /**
    * Runs a task behind a progress card. describe(progress) returns
-   * { label, ratio (0..1 or null), left, right, current } for display.
+   * { label, ratio (0..1 or null), left, right, sub, current, active } for display.
    */
   MF.busy = async function busy(title, name, payload, describe, { softStop = null } = {}) {
     const bar = h("div");
     const progress = h("div.progress.indeterminate", bar);
-    const left = h("span");
-    const right = h("span");
+    const left = h("span.l");
+    const right = h("span.r");
+    const pct = h("span.pct");
+    const note = h("div.sub");
     const current = h("div.current");
     const label = h("span", title);
     const cancelBtn = h("button.btn", softStop ? "Cancel now" : "Cancel");
@@ -328,7 +330,7 @@
     let stopping = false;
     const overlay = h(
       "div.busy",
-      h("div.busy-card", h("div.title", h("div.spinner"), label), h("div.detail", left, right), progress, current, h("div.foot", stopBtn, cancelBtn)),
+      h("div.busy-card", h("div.title", h("div.spinner"), label), h("div.bar-row", progress, pct), h("div.detail", left, right), note, current, h("div.foot", stopBtn, cancelBtn)),
     );
     document.body.appendChild(overlay);
     const job = start(name, payload, {
@@ -338,11 +340,15 @@
         if (typeof d.ratio === "number" && Number.isFinite(d.ratio)) {
           progress.classList.remove("indeterminate");
           bar.style.width = `${Math.max(1, Math.min(100, d.ratio * 100))}%`;
+          // 100% only when the work is really done, so it never reads "100%" while still running.
+          pct.textContent = `${Math.min(d.ratio >= 1 ? 100 : 99, Math.floor(d.ratio * 100))}%`;
         } else {
           progress.classList.add("indeterminate");
+          pct.textContent = "";
         }
         left.textContent = d.left || "";
         right.textContent = d.right || "";
+        note.textContent = d.sub || "";
         if (Array.isArray(d.active) && d.active.length) {
           // Several files at once: one stable line per file.
           current.classList.add("multi");

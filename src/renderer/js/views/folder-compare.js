@@ -86,7 +86,7 @@
           result = await MF.busy("Comparing folders…", "folder.compare", { a: dropA.paths[0], b: dropB.paths[0], options: { content, includeAll } }, (p) => {
             if (p.phase === "scan") return { label: "Reading both folders…", left: `A: ${fmt.num(p.scannedA)} items`, right: `B: ${fmt.num(p.scannedB)} items` };
             if (p.phase === "explain") return { label: "Working out what differs…", ratio: p.totalFiles ? p.doneFiles / p.totalFiles : null, left: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, current: p.current };
-            if (p.phase === "content") return { label: "Comparing file contents…", ratio: p.totalBytes ? p.doneBytes / p.totalBytes : null, left: `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)}`, right: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, current: p.current };
+            if (p.phase === "content") return { label: "Comparing file contents…", ratio: p.totalBytes ? p.doneBytes / p.totalBytes : null, left: `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)}`, sub: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, current: p.current };
             return {};
           });
           render();

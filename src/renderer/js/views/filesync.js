@@ -249,7 +249,8 @@
               return {
                 label: n > 1 ? `Comparing ${n} files at once…` : "Comparing contents…",
                 ratio: p.totalBytes ? p.doneBytes / p.totalBytes : null,
-                left: `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)} read · ${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files compared`,
+                left: `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)} read`,
+                sub: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files compared${n > 1 ? ` · ${n} at once` : ""}`,
                 right: rate ? `${fmt.size(rate)}/s${eta !== null ? ` · ${fmt.duration(eta)} left` : ""}` : p.totalBytes > 20 * 1024 ** 3 ? `${fmt.size(p.totalBytes)} to read, this takes a while` : "",
                 current: p.current,
                 active: p.active,
@@ -440,7 +441,8 @@
             return {
               label: p.phase === "copy" && p.active && p.active.length > 1 ? `Copying ${p.active.length} files at once${p.target ? ` · ${p.target}` : ""}` : `${labels[p.phase] || "Working"}${p.target ? ` · ${p.target}` : ""}`,
               ratio: p.totalBytes ? p.doneBytes / p.totalBytes : p.phase === "verify" ? 1 : null,
-              left: p.totalBytes ? `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)} · ${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files finished${p.active && p.active.length > 1 ? " (the rest are in progress or waiting)" : ""}` : "",
+              left: p.totalBytes ? `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)}` : "",
+              sub: p.totalBytes ? `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files finished${p.active && p.active.length > 1 ? ` · ${p.active.length} copying now` : ""}` : "",
               right: rate ? `${fmt.size(rate)}/s${eta !== null ? ` · ${fmt.duration(eta)} left` : ""}` : "",
               current: p.current,
               active: p.phase === "copy" ? p.active : null,
