@@ -195,3 +195,31 @@ test("byte-by-byte analysis reports the files being compared, with counts", asyn
   assert.equal(seen[seen.length - 1].doneFiles, 6);
   assert.equal(plan.targets[0].stats.copy + plan.targets[0].stats.replace, 0, "identical copies need nothing");
 });
+
+test("stopping softly finishes the files in progress, leaves nothing half-written, and the next run only copies the rest", async () => {
+  const files = {};
+  for (let i = 0; i < 8; i++) files[`take${i}.bin`] = Buffer.alloc(12 * 1024 * 1024, i + 1).toString("latin1");
+  const ref = makeTree(tmpDir("softRef"), files);
+  const target = tmpDir("softTarget");
+  const plan = await call("sync.analyze", { reference: ref, targets: [target], options: {} });
+
+  const soft = new AbortController();
+  const stopTask = { signal: undefined, softSignal: soft.signal, progress: (p) => p.phase === "copy" && p.active && p.active.length && soft.abort() };
+  const first = await handlers["sync.run"]({ planId: plan.id }, stopTask);
+  assert.equal(first.stopped, true);
+  assert.ok(first.filesRemaining > 0 && first.filesRemaining < 8, `some, not all, were copied (${first.filesRemaining} left)`);
+  assert.equal(first.targets[0].verify, undefined, "a stopped sync isn't verified");
+
+  const present = fs.readdirSync(target);
+  assert.deepEqual(present.filter((n) => n.startsWith(".myfile-partial")), [], "no half-written leftovers");
+  for (const name of present) assert.ok(fs.readFileSync(path.join(target, name)).equals(fs.readFileSync(path.join(ref, name))), `${name} is complete`);
+  assert.equal(present.length, 8 - first.filesRemaining);
+
+  const again = await call("sync.analyze", { reference: ref, targets: [target], options: {} });
+  assert.equal(again.targets[0].stats.copy, first.filesRemaining, "only the rest is left to copy");
+  const second = await call("sync.run", { planId: again.id });
+  assert.equal(second.stopped, false);
+  assert.equal(second.targets[0].copied, first.filesRemaining);
+  assert.equal(fs.readdirSync(target).length, 8);
+  assert.equal(second.targets[0].verify.mismatches, 0);
+});

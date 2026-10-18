@@ -445,6 +445,13 @@
               current: p.current,
               active: p.phase === "copy" ? p.active : null,
             };
+          }, {
+            softStop: {
+              label: "Finish current files, then stop",
+              title: "Files being copied right now are finished, nothing new is started. Nothing is thrown away, and the next sync carries on with the rest.",
+              doing: "Finishing the files in progress, then stopping…",
+              cancelTitle: "Stops immediately. The file being copied is discarded and has to be copied again next time.",
+            },
           });
           renderReport(res);
           state.plan = null;
@@ -479,7 +486,7 @@
       }
 
       function renderReport(res) {
-        const good = !res.errors && res.targets.every((t) => t.verify && t.verify.mismatches === 0);
+        const good = !res.stopped && !res.errors && res.targets.every((t) => t.verify && t.verify.mismatches === 0);
         replace(
           out,
           h(
@@ -487,8 +494,8 @@
             h("div.big-icon", icon(good ? "check" : "alert")),
             h(
               "div",
-              h("h3", good ? "Sync complete · verified" : "Sync finished with some problems"),
-              h("p", `${fmt.size(res.bytesWritten)} of files copied to ${fmt.plural(res.targets.length, "target")} in ${fmt.duration(res.elapsedMs)}${res.targets.every((t) => t.cloned || !t.bytesWritten) ? "" : ` · extra space used: about ${fmt.size(Math.max(0, res.targets.filter((t) => !t.cloned).reduce((s, t) => s + (t.spaceUsed || 0), 0)))}`}`),
+              h("h3", res.stopped ? `Stopped early · ${fmt.num(res.totalFiles - res.filesRemaining)} of ${fmt.num(res.totalFiles)} files copied` : good ? "Sync complete · verified" : "Sync finished with some problems"),
+              res.stopped ? h("p", `Nothing half-written was left behind. ${fmt.size(res.bytesRemaining)} (${fmt.num(res.filesRemaining)} files) are still to do: analyze and sync again to carry on. Finished files are skipped.`) : h("p", `${fmt.size(res.bytesWritten)} of files copied to ${fmt.plural(res.targets.length, "target")} in ${fmt.duration(res.elapsedMs)}${res.targets.every((t) => t.cloned || !t.bytesWritten) ? "" : ` · extra space used: about ${fmt.size(Math.max(0, res.targets.filter((t) => !t.cloned).reduce((s, t) => s + (t.spaceUsed || 0), 0)))}`}`),
             ),
             h("div.actions", MF.Button("Analyze again", { iconName: "refresh", onClick: analyze })),
           ),

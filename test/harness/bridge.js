@@ -22,6 +22,7 @@
       return post("/task", { id, name, payload }).finally(() => listeners.delete(id));
     },
     cancel: (id) => post("/cancel", { id }),
+    softStop: (id) => post("/softStop", { id }),
     pathForFile: (file) => file.path || "",
     dialog(opts) {
       if (window.__dialogQueue.length) return Promise.resolve(window.__dialogQueue.shift());

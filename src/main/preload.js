@@ -30,6 +30,11 @@ contextBridge.exposeInMainWorld("myfile", {
     return ipcRenderer.invoke("myfile:cancel", id);
   },
 
+  // Ask a running operation to finish what it is doing and then stop.
+  softStop(id) {
+    return ipcRenderer.invoke("myfile:softStop", id);
+  },
+
   // The real path of a file or folder dropped onto the window.
   pathForFile(file) {
     try {

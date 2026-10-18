@@ -100,10 +100,13 @@ function start() {
   ipcMain.handle("myfile:task", async (event, { id, name, payload }) => {
     if (!fromUs(event)) return { ok: false, error: "Not allowed" };
     const controller = new AbortController();
+    // "Stop after the current files": a gentler stop than aborting.
+    controller.soft = new AbortController();
     running.set(id, controller);
     const sender = event.sender;
     const task = {
       signal: controller.signal,
+      softSignal: controller.soft.signal,
       progress: (data) => {
         if (!sender.isDestroyed()) sender.send("myfile:progress", { id, data });
       },
@@ -119,6 +122,13 @@ function start() {
     if (!fromUs(event)) return false;
     const c = running.get(id);
     if (c) c.abort();
+    return Boolean(c);
+  });
+
+  ipcMain.handle("myfile:softStop", (event, id) => {
+    if (!fromUs(event)) return false;
+    const c = running.get(id);
+    if (c && c.soft) c.soft.abort();
     return Boolean(c);
   });
 

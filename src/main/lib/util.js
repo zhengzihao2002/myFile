@@ -25,7 +25,7 @@ function checkCancel(signal) {
 }
 
 // Runs fn over items with at most `limit` in flight. Results keep input order.
-async function mapLimit(items, limit, fn, signal) {
+async function mapLimit(items, limit, fn, signal, shouldStop = null) {
   const results = new Array(items.length);
   let next = 0;
   const workers = [];
@@ -35,6 +35,7 @@ async function mapLimit(items, limit, fn, signal) {
       (async () => {
         while (true) {
           checkCancel(signal);
+          if (shouldStop && shouldStop()) return;
           const i = next++;
           if (i >= items.length) return;
           results[i] = await fn(items[i], i);

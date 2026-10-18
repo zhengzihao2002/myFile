@@ -598,9 +598,16 @@ async function run(ctx, { planId }, task) {
   const release = ctx.keepAwake ? ctx.keepAwake() : null;
   const removeItem = opts.removeMode === "delete" ? (p) => fs.promises.rm(p, { recursive: true, force: true }) : (p) => ctx.trash(p);
 
+  // "Finish current files, then stop": nothing new starts, files in progress finish.
+  const softStopped = () => Boolean(task.softSignal && task.softSignal.aborted);
+  let stopped = false;
   try {
     for (const t of plan.targets) {
       checkCancel(task.signal);
+      if (softStopped()) {
+        stopped = true;
+        break;
+      }
       const info = tinfo[t.index];
       const volume = info.volume;
       const res = {
@@ -671,6 +678,7 @@ async function run(ctx, { planId }, task) {
       // finished. Each file gets its modification date right away, so if the
       // drive is unplugged the next run recognises what's already done.
       const files = t.actions.filter((a) => (a.op === "copy" || a.op === "replace") && a.kind === "file");
+      const finished = new Set();
       await mapLimit(
         files,
         copyConcurrency(volume),
@@ -708,6 +716,7 @@ async function run(ctx, { planId }, task) {
             await fs.promises.rename(tmp, dest);
             await fs.promises.utimes(dest, r.atimeMs / 1000, r.mtimeMs / 1000).catch(() => {});
             res.bytesWritten += r.size;
+            finished.add(a.rel);
             if (a.op === "copy") res.copied++;
             else res.replaced++;
           } catch (err) {
@@ -722,10 +731,19 @@ async function run(ctx, { planId }, task) {
           report({ phase: "copy", target: t.name, targetIndex: t.index, current: [...active][0] || a.rel });
         },
         task.signal,
+        softStopped,
       );
+      // Files that were never started (or were blocked/failed) are not touched below.
+      const notDone = new Set();
+      if (softStopped()) {
+        stopped = true;
+        res.stopped = true;
+        for (const a of files) if (!finished.has(a.rel)) notDone.add(a.rel);
+      }
 
       // 4. Symlinks.
       for (const a of t.actions) {
+        if (res.stopped) break;
         if (a.kind !== "link" || (a.op !== "link" && a.op !== "replace")) continue;
         try {
           await fs.promises.symlink(ref.items.get(a.rel).linkTarget, abs(a.rel));
@@ -742,7 +760,7 @@ async function run(ctx, { planId }, task) {
       const failedRels = new Set(res.errors.map((e) => e.rel));
       const timeRels = new Set();
       for (const a of t.actions) {
-        if (a.op === "remove" || a.blocked || failedRels.has(a.rel)) continue;
+        if (a.op === "remove" || a.blocked || failedRels.has(a.rel) || notDone.has(a.rel)) continue;
         timeRels.add(a.rel);
         if (a.op === "touch") res.touched++;
       }
@@ -762,13 +780,17 @@ async function run(ctx, { planId }, task) {
       res.birthUnsupported = timeRes.birthUnsupported;
 
       // 6. Check the result.
-      report({ phase: "verify", target: t.name, targetIndex: t.index, current: null });
-      res.verify = await verifyTarget(ref, t, included, { ...plan.options, toleranceMs: info.tol, skipRoot: info.isVolumeRoot }, task.signal);
+      // A stopped sync isn't complete, so there is nothing to verify yet.
+      if (!res.stopped) {
+        report({ phase: "verify", target: t.name, targetIndex: t.index, current: null });
+        res.verify = await verifyTarget(ref, t, included, { ...plan.options, toleranceMs: info.tol, skipRoot: info.isVolumeRoot }, task.signal);
+      }
       res.spaceAfter = await diskSpace(t.path);
       res.spaceUsed = res.spaceBefore.free !== null && res.spaceAfter.free !== null ? res.spaceBefore.free - res.spaceAfter.free : null;
       // Same APFS disk as the reference: copies are clones that share its storage.
       const refVol = plan.reference.volume;
       res.cloned = Boolean(res.bytesWritten > 0 && volume.fsType === "apfs" && refVol && refVol.mountPoint === volume.mountPoint);
+      if (stopped) break;
     }
   } finally {
     if (release) release();
@@ -786,11 +808,16 @@ async function run(ctx, { planId }, task) {
     bytesWritten: results.reduce((s, r) => s + r.bytesWritten, 0),
     spaceUsed: results.reduce((s, r) => s + (r.spaceUsed || 0), 0),
     errors: results.reduce((s, r) => s + r.errors.length, 0),
+    stopped,
+    filesRemaining: stopped ? Math.max(0, totalFiles - doneFiles) : 0,
+    bytesRemaining: stopped ? Math.max(0, totalBytes - doneBytes) : 0,
+    totalFiles,
+    totalBytes,
   };
   ctx.history.add({
     type: "filesync",
     title: `${plan.mode === "split" ? "Split" : "Synced"} ${plan.reference.name} → ${results.length} target${results.length === 1 ? "" : "s"}`,
-    summary: `${humanSize(summary.bytesWritten)} written · ${results.reduce((s, r) => s + r.copied + r.replaced, 0)} files copied · ${summary.errors} problem${summary.errors === 1 ? "" : "s"}`,
+    summary: `${stopped ? `Stopped early: ${summary.totalFiles - summary.filesRemaining} of ${summary.totalFiles} files done · ` : ""}${humanSize(summary.bytesWritten)} written · ${results.reduce((s, r) => s + r.copied + r.replaced, 0)} files copied · ${summary.errors} problem${summary.errors === 1 ? "" : "s"}`,
     details: { reference: plan.reference.path, targets: results.map((r) => ({ path: r.path, bytesWritten: r.bytesWritten, spaceUsed: r.spaceUsed, errors: r.errors.length })) },
   });
   return summary;

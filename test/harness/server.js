@@ -74,8 +74,9 @@ function createServer({ dataDir } = {}) {
       if (req.method === "POST" && url.pathname === "/task") {
         const { id, name, payload } = await readBody(req);
         const controller = new AbortController();
+        controller.soft = new AbortController();
         running.set(id, controller);
-        const out = await invoke(handlers, name, payload, { signal: controller.signal, progress: (data) => send({ id, data }) });
+        const out = await invoke(handlers, name, payload, { signal: controller.signal, softSignal: controller.soft.signal, progress: (data) => send({ id, data }) });
         running.delete(id);
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify(out));
@@ -84,6 +85,13 @@ function createServer({ dataDir } = {}) {
         const { id } = await readBody(req);
         const c = running.get(id);
         if (c) c.abort();
+        res.writeHead(200, { "content-type": "application/json" });
+        return res.end(JSON.stringify(Boolean(c)));
+      }
+      if (req.method === "POST" && url.pathname === "/softStop") {
+        const { id } = await readBody(req);
+        const c = running.get(id);
+        if (c && c.soft) c.soft.abort();
         res.writeHead(200, { "content-type": "application/json" });
         return res.end(JSON.stringify(Boolean(c)));
       }
