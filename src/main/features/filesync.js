@@ -433,22 +433,34 @@ async function analyze(ctx, { reference, targets, mode = "direct", selection = n
 
   // Same size but different date (or thorough mode): compare the bytes.
   const totalBytes = compareJobs.reduce((s, j) => s + j.r.size, 0);
+  const totalFiles = compareJobs.length;
   let doneBytes = 0;
+  let doneFiles = 0;
+  // Files being compared right now, oldest first; both drives are read, so the slower one sets the pace.
+  const active = new Set();
+  const compareLimit = Math.min(copyConcurrency(refVolume), ...[...new Set(compareJobs.map((j) => j.t))].map((t) => copyConcurrency(t.volume)));
+  const sendCompare = () => report({ phase: "compare", doneBytes, totalBytes, doneFiles, totalFiles, active: [...active], current: [...active][0] || null });
   await mapLimit(
     compareJobs,
-    4,
+    compareLimit,
     async (job) => {
       let same = false;
+      active.add(job.rel);
+      sendCompare();
       try {
         same = await sameContent(job.r.path, job.x.path, {
           signal: task.signal,
           onBytes: (n) => {
             doneBytes += n;
-            report({ phase: "compare", doneBytes, totalBytes, current: job.rel });
+            sendCompare();
           },
         });
       } catch (err) {
         if (err.code === "CANCELLED") throw err;
+      } finally {
+        active.delete(job.rel);
+        doneFiles++;
+        sendCompare();
       }
       const tol = job.t.tol;
       if (!same) job.t.actions.push({ op: "replace", ...job.base, oldKind: "file", oldSize: job.x.size, oldPath: job.x.path, reason: "content" });

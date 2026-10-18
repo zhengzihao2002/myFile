@@ -155,7 +155,7 @@ test("reference tree lists children with sizes for the picker", async () => {
 
 test("progress lists the files being copied at once, never more than the copy concurrency", async () => {
   const files = {};
-  for (let i = 0; i < 12; i++) files[`clip${i}.bin`] = Buffer.alloc(24 * 1024 * 1024, i).toString("latin1");
+  for (let i = 0; i < 8; i++) files[`clip${i}.bin`] = Buffer.alloc(12 * 1024 * 1024, i).toString("latin1");
   const ref = makeTree(tmpDir("actRef"), files);
   const target = tmpDir("actTarget");
   const plan = await call("sync.analyze", { reference: ref, targets: [target], options: {} });
@@ -172,4 +172,26 @@ test("progress lists the files being copied at once, never more than the copy co
   assert.ok(seen.some((p) => p.active.length > 1), "several files are in flight together");
   // Progress is throttled, so quick copies don't all show up; the ones shown are real file names.
   assert.ok(seen.flatMap((p) => p.active).every((n) => /^clip\d+\.bin$/.test(n)));
+});
+
+test("byte-by-byte analysis reports the files being compared, with counts", async () => {
+  const files = {};
+  for (let i = 0; i < 6; i++) files[`take${i}.bin`] = Buffer.alloc(8 * 1024 * 1024, i + 1).toString("latin1");
+  const ref = makeTree(tmpDir("cmpActRef"), files);
+  const target = tmpDir("cmpActTarget");
+  for (const name of Object.keys(files)) fs.copyFileSync(path.join(ref, name), path.join(target, name));
+  for (const name of Object.keys(files)) setMtime(path.join(target, name), fs.statSync(path.join(ref, name)).mtimeMs);
+  const seen = [];
+  const saved = task.progress;
+  task.progress = (p) => p.phase === "compare" && seen.push(p);
+  let plan;
+  try {
+    plan = await handlers["sync.analyze"]({ reference: ref, targets: [target], options: { verify: "thorough" } }, task);
+  } finally {
+    task.progress = saved;
+  }
+  assert.ok(seen.length > 0, "compare progress was reported");
+  assert.ok(seen.every((p) => Array.isArray(p.active) && p.active.length <= 4 && p.totalFiles === 6));
+  assert.equal(seen[seen.length - 1].doneFiles, 6);
+  assert.equal(plan.targets[0].stats.copy + plan.targets[0].stats.replace, 0, "identical copies need nothing");
 });

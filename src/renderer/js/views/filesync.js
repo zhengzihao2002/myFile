@@ -55,7 +55,7 @@
       });
       const modeHelp = h("div.muted.small", { style: { marginTop: "8px" } });
       const mirrorOpt = MF.Option({ title: "Remove what the reference doesn't have", desc: "Items in a target that aren't in the reference are removed, making it an exact mirror. A drive's own system folders are never touched.", checked: false, onChange: (v) => { state.options.mirror = v; inputsChanged(); } });
-      const verifyOpt = MF.Option({ title: "Compare contents byte by byte", desc: "Slower. Otherwise files with the same size and date count as identical.", checked: false, onChange: (v) => { state.options.verify = v ? "thorough" : "quick"; inputsChanged(); } });
+      const verifyOpt = MF.Option({ title: "Compare contents byte by byte", desc: "Reads every file on both sides and compares them. Much slower (about as long as copying everything), but catches changes that keep the same size and date. Nothing is written. Otherwise files with the same size and date count as identical.", checked: false, onChange: (v) => { state.options.verify = v ? "thorough" : "quick"; inputsChanged(); } });
       const subOpt = MF.Option({ title: "Put the clone in a subfolder", desc: "Creates a folder named after the reference inside each target, instead of using the target folder itself.", checked: false, onChange: (v) => { state.options.intoSubfolder = v; inputsChanged(); } });
       const strategySeg = MF.Segmented({
         value: state.options.strategy,
@@ -235,11 +235,26 @@
 
       // ----- Plan ----------------------------------------------------------
       async function analyze() {
+        let t0 = null;
         try {
           state.plan = await MF.busy("Analyzing…", "sync.analyze", payload(), (p) => {
             if (p.phase === "scan-reference") return { label: "Reading the reference…", left: `${fmt.num(p.scanned)} items` };
             if (p.phase === "scan-target") return { label: `Reading ${p.target}…`, left: `${fmt.num(p.scanned)} items` };
-            if (p.phase === "compare") return { label: "Comparing contents…", ratio: p.totalBytes ? p.doneBytes / p.totalBytes : null, left: `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)}`, current: p.current };
+            if (p.phase === "compare") {
+              if (!t0 && p.doneBytes > 0) t0 = { time: Date.now(), bytes: p.doneBytes };
+              const elapsed = t0 ? (Date.now() - t0.time) / 1000 : 0;
+              const rate = elapsed > 2 ? (p.doneBytes - t0.bytes) / elapsed : 0;
+              const eta = rate > 0 ? ((p.totalBytes - p.doneBytes) / rate) * 1000 : null;
+              const n = p.active ? p.active.length : 0;
+              return {
+                label: n > 1 ? `Comparing ${n} files at once…` : "Comparing contents…",
+                ratio: p.totalBytes ? p.doneBytes / p.totalBytes : null,
+                left: `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)} read · ${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files compared`,
+                right: rate ? `${fmt.size(rate)}/s${eta !== null ? ` · ${fmt.duration(eta)} left` : ""}` : p.totalBytes > 20 * 1024 ** 3 ? `${fmt.size(p.totalBytes)} to read, this takes a while` : "",
+                current: p.current,
+                active: p.active,
+              };
+            }
             return {};
           });
           renderPlan();
