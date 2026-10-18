@@ -106,3 +106,17 @@ test("throttle never delivers an empty update after a newer one was already sent
   assert.ok(got.every((v) => v !== null && v !== undefined), JSON.stringify(got));
   assert.deepEqual(got.slice(-1), [3]);
 });
+
+test("filesAtOnce: the user's number wins, automatic follows the slowest drive", () => {
+  const { filesAtOnce } = require("../src/main/lib/util");
+  const ssd = { solidState: true };
+  const hdd = { solidState: false };
+  assert.equal(filesAtOnce("auto", [ssd]), 4);
+  assert.equal(filesAtOnce("auto", [ssd, hdd]), 1);
+  assert.equal(filesAtOnce("auto", [{ solidState: null }]), 2);
+  assert.equal(filesAtOnce("auto", []), 4);
+  assert.equal(filesAtOnce(3, [hdd]), 3);
+  assert.equal(filesAtOnce("8", [hdd]), 8);
+  assert.equal(filesAtOnce(0, [ssd]), 4, "0 is not a valid choice, so automatic applies");
+  assert.equal(filesAtOnce(99, [ssd]), 16);
+});

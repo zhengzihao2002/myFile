@@ -25,6 +25,7 @@ const DEFAULT_SETTINGS = {
   toleranceMs: 1000, // dates closer than this count as equal
   includeAll: false, // include .DS_Store and friends
   compareContent: "smart", // smart | thorough | size
+  parallelFiles: "auto", // files read or copied at the same time: auto | 1 .. 16
   confirmBeforeApply: true,
 };
 

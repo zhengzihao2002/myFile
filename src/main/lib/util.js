@@ -141,7 +141,20 @@ function errText(err) {
   return err.message || String(err);
 }
 
+/**
+ * How many files to read or copy at the same time. The user's choice in
+ * Settings wins; "auto" suits the drives involved (SSDs like parallel work,
+ * spinning disks don't) and follows the slowest one.
+ */
+function filesAtOnce(setting, volumes = []) {
+  const n = Number(setting);
+  if (Number.isFinite(n) && n >= 1) return Math.min(16, Math.floor(n));
+  const per = (v) => (v && v.solidState === true ? 4 : v && v.solidState === false ? 1 : 2);
+  return Math.min(4, ...volumes.filter(Boolean).map(per));
+}
+
 module.exports = {
+  filesAtOnce,
   CancelledError,
   UserError,
   checkCancel,

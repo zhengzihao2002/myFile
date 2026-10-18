@@ -7,7 +7,7 @@ const path = require("node:path");
 const { makeTree, tmpDir, testContext, setMtime, readTags } = require("./helpers");
 const { parseIndexHtml, indexToItems } = require("../src/main/features/folder-index");
 
-const { et, call } = testContext();
+const { et, call, ctx, task, handlers } = testContext();
 test.after(() => et.close());
 
 const T1 = Date.UTC(2020, 0, 2, 3, 4, 5, 500);
@@ -162,7 +162,7 @@ test("compare names the EXIF tags that differ between two photos", async () => {
   const b = tmpDir("exifB");
   await makeJpeg(path.join(a, "p.jpg"));
   fs.copyFileSync(path.join(a, "p.jpg"), path.join(b, "p.jpg"));
-  const { ctx } = { ctx: await require("./helpers").testContext() };
+  // (uses the shared ctx above)
   await ctx.et.write(path.join(a, "p.jpg"), [["DateTimeOriginal", "2020:01:02 03:04:05"]]);
   await ctx.et.write(path.join(b, "p.jpg"), [["DateTimeOriginal", "2021:06:07 08:09:10"]]);
   const r = await call("folder.compare", { a, b, options: { content: "thorough" } });
@@ -179,4 +179,41 @@ test("binary files that are not photos fall back to a byte description", async (
   fs.writeFileSync(path.join(b, "x.bin"), Buffer.from([1, 0, 9, 4]));
   const r = await call("folder.compare", { a, b, options: { content: "thorough" } });
   assert.match(r.changed[0].detail.summary, /1 byte differs, first at byte 2/);
+});
+
+test("folder compare reads as many files together as the files-at-once setting allows", async () => {
+  const mk = (tag) => {
+    const files = {};
+    for (let i = 0; i < 6; i++) files[`f${i}.bin`] = Buffer.alloc(16 * 1024 * 1024, i + 1).toString("latin1");
+    return makeTree(tmpDir(tag), files);
+  };
+  const a = mk("parA");
+  const b = mk("parB");
+  for (let i = 0; i < 6; i++) {
+    setMtime(path.join(a, `f${i}.bin`), T1);
+    setMtime(path.join(b, `f${i}.bin`), T2); // different dates force a byte comparison
+  }
+  const run = async (n) => {
+    ctx.settings.values.parallelFiles = n; // in memory only: the data folder is shared with other test files
+    const seen = [];
+    const saved = task.progress;
+    task.progress = (p) => p.phase === "content" && seen.push(p);
+    try {
+      return { r: await handlers["folder.compare"]({ a, b, options: { content: "thorough" } }, task), seen };
+    } finally {
+      task.progress = saved;
+    }
+  };
+  try {
+    const one = await run(1);
+    assert.equal(one.r.counts.filesAtOnce, 1);
+    assert.equal(one.r.counts.peakAtOnce, 1);
+    assert.ok(one.seen.every((p) => Array.isArray(p.active) && p.active.length <= 1));
+    const three = await run(3);
+    assert.equal(three.r.counts.filesAtOnce, 3);
+    assert.equal(three.r.counts.peakAtOnce, 3, "three files really were read together");
+    assert.ok(three.seen.every((p) => p.active.length <= 3));
+  } finally {
+    ctx.settings.values.parallelFiles = "auto";
+  }
 });
