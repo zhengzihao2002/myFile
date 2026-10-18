@@ -352,7 +352,7 @@
         if (Array.isArray(d.active) && d.active.length > 1) {
           // Several files at once: one stable line per file.
           current.classList.add("multi");
-          replace(current, d.active.slice(0, 4).map((name) => h("div", name)));
+          replace(current, d.active.map((name) => h("div", name)));
         } else {
           current.classList.remove("multi");
           current.textContent = (Array.isArray(d.active) && d.active[0]) || d.current || "";

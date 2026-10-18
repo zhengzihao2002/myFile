@@ -567,7 +567,7 @@ select.select {
 .busy-card .detail .r { flex: none; }
 .busy-card .sub { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .busy-card .sub:empty, .busy-card .detail:empty { display: none; }
-.busy-card .current.multi { direction: ltr; white-space: normal; }
+.busy-card .current.multi { direction: ltr; white-space: normal; max-height: 140px; overflow-y: auto; }
 .busy-card .current.multi > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .busy-card .current:not(:empty) { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .busy-card .current { margin-top: 0; color: var(--faint); font-size: 11.5px; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; min-height: 16px; }

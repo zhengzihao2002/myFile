@@ -162,14 +162,15 @@ test("progress lists the files being copied at once, never more than the copy co
   const seen = [];
   const saved = task.progress;
   task.progress = (p) => p.phase === "copy" && seen.push(p);
+  let ran;
   try {
-    await handlers["sync.run"]({ planId: plan.id }, task);
+    ran = await handlers["sync.run"]({ planId: plan.id }, task);
   } finally {
     task.progress = saved;
   }
   assert.ok(seen.length > 0);
-  assert.ok(seen.every((p) => Array.isArray(p.active) && p.active.length <= 4), "at most 4 at once");
-  assert.ok(seen.some((p) => p.active.length > 1), "several files are in flight together");
+  assert.ok(seen.every((p) => Array.isArray(p.active) && p.active.length <= 2), "at most the automatic number (2 here) at once");
+  assert.equal(ran.peakAtOnce, 2, "two files really were copied together (the automatic number here)");
   // Progress is throttled, so quick copies don't all show up; the ones shown are real file names.
   assert.ok(seen.flatMap((p) => p.active).every((n) => /^clip\d+\.bin$/.test(n)));
 });
@@ -191,7 +192,7 @@ test("byte-by-byte analysis reports the files being compared, with counts", asyn
     task.progress = saved;
   }
   assert.ok(seen.length > 0, "compare progress was reported");
-  assert.ok(seen.every((p) => Array.isArray(p.active) && p.active.length <= 4 && p.totalFiles === 6));
+  assert.ok(seen.every((p) => Array.isArray(p.active) && p.active.length <= 2 && p.totalFiles === 6));
   assert.equal(seen[seen.length - 1].doneFiles, 6);
   assert.equal(plan.targets[0].stats.copy + plan.targets[0].stats.replace, 0, "identical copies need nothing");
 });
@@ -222,4 +223,29 @@ test("stopping softly finishes the files in progress, leaves nothing half-writte
   assert.equal(second.targets[0].copied, first.filesRemaining);
   assert.equal(fs.readdirSync(target).length, 8);
   assert.equal(second.targets[0].verify.mismatches, 0);
+});
+
+test("with 8 files at once, progress lists more than four of them", async () => {
+  const { ctx } = testContext();
+  const files = {};
+  for (let i = 0; i < 12; i++) files[`big${i}.bin`] = Buffer.alloc(24 * 1024 * 1024, i + 1).toString("latin1");
+  const ref = makeTree(tmpDir("eightRef"), files);
+  const target = tmpDir("eightTarget");
+  ctx.settings.values.parallelFiles = 8; // in memory only: the data folder is shared with other test files
+  try {
+    const plan = await call("sync.analyze", { reference: ref, targets: [target], options: {} });
+    const seen = [];
+    const saved = task.progress;
+    task.progress = (p) => p.phase === "copy" && seen.push(p);
+    let ran;
+    try {
+      ran = await handlers["sync.run"]({ planId: plan.id }, task);
+    } finally {
+      task.progress = saved;
+    }
+    assert.equal(ran.peakAtOnce, 8, "eight files really were copied together");
+    assert.ok(seen.every((p) => p.active.length <= 8));
+  } finally {
+    ctx.settings.values.parallelFiles = "auto";
+  }
 });

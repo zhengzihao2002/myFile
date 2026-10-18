@@ -585,6 +585,7 @@ async function run(ctx, { planId }, task) {
   let doneFiles = 0;
   // Files being copied right now (several at once), oldest first.
   const active = new Set();
+  let peakAtOnce = 0;
   const report = throttle((p) => task.progress({ doneBytes, totalBytes, doneFiles, totalFiles, active: [...active], ...p }), 120);
   const results = [];
   // Long copies to an external drive shouldn't stop because the Mac dozes off.
@@ -686,6 +687,7 @@ async function run(ctx, { planId }, task) {
           const tmp = path.join(path.dirname(dest), partialName(path.basename(dest)));
           let counted = 0;
           active.add(a.rel);
+          peakAtOnce = Math.max(peakAtOnce, active.size);
           report({ phase: "copy", target: t.name, targetIndex: t.index, current: a.rel });
           try {
             await copyFileExact(r.path, tmp, {
@@ -802,6 +804,7 @@ async function run(ctx, { planId }, task) {
     spaceUsed: results.reduce((s, r) => s + (r.spaceUsed || 0), 0),
     errors: results.reduce((s, r) => s + r.errors.length, 0),
     stopped,
+    peakAtOnce,
     filesRemaining: stopped ? Math.max(0, totalFiles - doneFiles) : 0,
     bytesRemaining: stopped ? Math.max(0, totalBytes - doneBytes) : 0,
     totalFiles,
