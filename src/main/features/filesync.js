@@ -21,7 +21,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { UserError, throttle, mapLimit, checkCancel, parentRel, depthOf, newId, isInside, relKey, errText, humanSize } = require("../lib/util");
+const { UserError, throttle, mapLimit, filesAtOnce, checkCancel, parentRel, depthOf, newId, isInside, relKey, errText, humanSize } = require("../lib/util");
 const { scanTree, childIndex, itemFromStat } = require("../lib/scan");
 const { ignoreFor } = require("../lib/ignore");
 const { sameContent } = require("../lib/samefile");
@@ -152,13 +152,6 @@ function makeSelection(selection) {
 function unitOf(rel) {
   const i = rel.indexOf("/");
   return i < 0 ? rel : rel.slice(0, i);
-}
-
-// How many files to copy at once: SSDs like parallel writes, spinning disks don't.
-function copyConcurrency(volume) {
-  if (volume.solidState === true) return 4;
-  if (volume.solidState === false) return 1;
-  return 2;
 }
 
 // Readable wording for the errors external drives produce.
@@ -438,7 +431,7 @@ async function analyze(ctx, { reference, targets, mode = "direct", selection = n
   let doneFiles = 0;
   // Files being compared right now, oldest first; both drives are read, so the slower one sets the pace.
   const active = new Set();
-  const compareLimit = Math.min(copyConcurrency(refVolume), ...[...new Set(compareJobs.map((j) => j.t))].map((t) => copyConcurrency(t.volume)));
+  const compareLimit = filesAtOnce(settings.parallelFiles, [refVolume, ...new Set(compareJobs.map((j) => j.t.volume))]);
   const sendCompare = () => report({ phase: "compare", doneBytes, totalBytes, doneFiles, totalFiles, active: [...active], current: [...active][0] || null });
   await mapLimit(
     compareJobs,
@@ -681,7 +674,7 @@ async function run(ctx, { planId }, task) {
       const finished = new Set();
       await mapLimit(
         files,
-        copyConcurrency(volume),
+        filesAtOnce(ctx.settings.get().parallelFiles, [volume]),
         async (a) => {
           if (a.blocked) {
             res.skipped++;

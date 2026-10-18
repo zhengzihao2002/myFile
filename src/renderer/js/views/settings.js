@@ -57,6 +57,17 @@
           ],
           onChange: (v) => save({ compareContent: v }),
         });
+        const parallel = MF.Segmented({
+          value: String(s.parallelFiles || "auto"),
+          options: [
+            { value: "auto", label: "Automatic", title: "4 for SSDs, 1 for spinning hard disks, 2 otherwise" },
+            { value: "1", label: "1", title: "One file at a time. Best for slow USB drives and hard disks" },
+            { value: "2", label: "2" },
+            { value: "4", label: "4" },
+            { value: "8", label: "8", title: "For fast SSDs and many small files" },
+          ],
+          onChange: (v) => save({ parallelFiles: v === "auto" ? "auto" : Number(v) }),
+        });
         const includeAll = MF.Option({ title: "Include system files", desc: ".DS_Store, ._ files, Thumbs.db and other operating-system bookkeeping. Off by default everywhere.", checked: s.includeAll, onChange: (v) => save({ includeAll: v }) });
 
         const line = (k, v) => h("div.kvline", h("span.k", k), h("span.v.selectable", v));
@@ -72,6 +83,7 @@
             h("h3", "Comparing"),
             h("div.option", h("span.text", h("div.title", "When are two dates the same?"), h("div.desc", "Used to decide what needs fixing. New dates are always written exactly.")), tolerance.el),
             h("div.option", h("span.text", h("div.title", "Folder › Compare checks contents by"), h("div.desc", "Smart reads files only when size matches but dates differ.")), compare.el),
+            h("div.option", h("span.text", h("div.title", "Files at the same time"), h("div.desc", "How many files are compared, analyzed or copied together. Automatic picks 4 for SSDs, 1 for spinning hard disks and 2 otherwise. A slow USB drive is often faster with 1 or 2; a fast SSD with 4 or more. The progress window lists every file in progress.")), parallel.el),
             includeAll.el,
           ),
           h(

@@ -5,7 +5,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { UserError, mapLimit, throttle, extOf, newId, humanSize } = require("../lib/util");
+const { UserError, mapLimit, filesAtOnce, throttle, extOf, newId, humanSize } = require("../lib/util");
 const { scanTree } = require("../lib/scan");
 const { ignoreFor } = require("../lib/ignore");
 const { sameContent, diffContent } = require("../lib/samefile");
@@ -185,25 +185,37 @@ async function compare(ctx, { a, b, options = {} }, task) {
   let doneBytes = 0;
   let doneFiles = 0;
   const reportBytes = throttle((p) => task.progress(p), 150);
+  // Files being compared right now, oldest first (the window lists them all instead of flickering between them).
+  const active = new Set();
+  const send = () => reportBytes({ phase: "content", doneBytes, totalBytes, doneFiles, totalFiles: toCheck.length, active: [...active], current: [...active][0] || null });
+  const volumes = await Promise.all([ctx.volumes.info(a), ctx.volumes.info(b)]).catch(() => []);
+  const atOnce = filesAtOnce(settings.parallelFiles, volumes);
+  let peak = 0;
   await mapLimit(
     toCheck,
-    4,
+    atOnce,
     async (x) => {
       let same = false;
+      active.add(x.rel);
+      peak = Math.max(peak, active.size);
+      send();
       try {
         same = await sameContent(x.ia.path, x.ib.path, {
           signal: task.signal,
           onBytes: (n) => {
             doneBytes += n;
-            reportBytes({ phase: "content", doneBytes, totalBytes, doneFiles, totalFiles: toCheck.length, current: x.rel });
+            send();
           },
         });
       } catch (err) {
         if (err.code === "CANCELLED") throw err;
         changed.push({ rel: x.rel, reason: "unreadable", sizeA: x.ia.size, sizeB: x.ib.size, mtimeA: x.ia.mtimeMs, mtimeB: x.ib.mtimeMs });
         return;
+      } finally {
+        active.delete(x.rel);
       }
       doneFiles++;
+      send();
       if (same) identical.push({ rel: x.rel, size: x.ia.size, check: "bytes", ia: x.ia, ib: x.ib });
       else changed.push({ rel: x.rel, reason: "content", sizeA: x.ia.size, sizeB: x.ib.size, mtimeA: x.ia.mtimeMs, mtimeB: x.ib.mtimeMs });
     },
@@ -267,6 +279,8 @@ async function compare(ctx, { a, b, options = {} }, task) {
       identical: identicalRows.length,
       dateDiffs: dateDiffs.length,
       bytesChecked: totalBytes,
+      filesAtOnce: atOnce,
+      peakAtOnce: peak,
     },
     same: !onlyA.length && !onlyB.length && !foldersOnlyA.length && !foldersOnlyB.length && !changed.length,
     onlyA,

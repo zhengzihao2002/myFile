@@ -349,13 +349,13 @@
         left.textContent = d.left || "";
         right.textContent = d.right || "";
         note.textContent = d.sub || "";
-        if (Array.isArray(d.active) && d.active.length) {
+        if (Array.isArray(d.active) && d.active.length > 1) {
           // Several files at once: one stable line per file.
           current.classList.add("multi");
           replace(current, d.active.slice(0, 4).map((name) => h("div", name)));
         } else {
           current.classList.remove("multi");
-          current.textContent = d.current || "";
+          current.textContent = (Array.isArray(d.active) && d.active[0]) || d.current || "";
         }
       },
     });
