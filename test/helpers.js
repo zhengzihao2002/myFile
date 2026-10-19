@@ -37,10 +37,16 @@ function makeMovie(file, brand = "qt  ") {
   return file;
 }
 
+// Every test process works in its own folder and removes it when it exits,
+// so repeated runs never fill the disk.
+let tmpBase = null;
 function tmpDir(name = "t") {
-  const base = path.join(__dirname, ".tmp");
-  fs.mkdirSync(base, { recursive: true });
-  return fs.mkdtempSync(path.join(base, `${name}-`));
+  if (!tmpBase) {
+    tmpBase = path.join(__dirname, ".tmp", String(process.pid));
+    fs.mkdirSync(tmpBase, { recursive: true });
+    process.on("exit", () => fs.rmSync(tmpBase, { recursive: true, force: true }));
+  }
+  return fs.mkdtempSync(path.join(tmpBase, `${name}-`));
 }
 
 /** Creates files from { "a/b.txt": "content", "c/": null, "p.jpg": "jpeg", "v.mov": "mov" }. */
