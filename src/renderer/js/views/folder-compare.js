@@ -13,9 +13,8 @@
     subtitle: "What's only on one side, what changed, and what's identical. Nothing is modified.",
     mount() {
       let result = null;
-      const settings = MF.settings || {};
-      let content = settings.compareContent || "smart";
-      let includeAll = Boolean(settings.includeAll);
+      let content = "smart";
+      let includeAll = false;
 
       const dropA = MF.DropZone({ label: "Folder A", step: "A", accept: "folder", title: "Drop the first folder", subtitle: "Usually the original", glyph: "folder", onChange: changed });
       const dropB = MF.DropZone({ label: "Folder B", step: "B", accept: "folder", title: "Drop the second folder", subtitle: "Usually the copy", glyph: "folder", onChange: changed });

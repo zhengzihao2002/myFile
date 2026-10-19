@@ -116,7 +116,7 @@ async function modifyPlan(ctx, { reference, targets, options = {} }, task) {
     modified: true,
     exif: true,
     requireSameSize: false,
-    includeAll: settings.includeAll,
+    includeAll: false,
     toleranceMs: settings.toleranceMs,
     ...options,
   };
