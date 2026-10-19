@@ -234,23 +234,19 @@
 
       // ----- Plan ----------------------------------------------------------
       async function analyze() {
-        let t0 = null;
+        const rate = MF.rateTracker();
         try {
           state.plan = await MF.busy("Analyzing…", "sync.analyze", payload(), (p) => {
             if (p.phase === "scan-reference") return { label: "Reading the reference…", left: `${fmt.num(p.scanned)} items` };
             if (p.phase === "scan-target") return { label: `Reading ${p.target}…`, left: `${fmt.num(p.scanned)} items` };
             if (p.phase === "compare") {
-              if (!t0 && p.doneBytes > 0) t0 = { time: Date.now(), bytes: p.doneBytes };
-              const elapsed = t0 ? (Date.now() - t0.time) / 1000 : 0;
-              const rate = elapsed > 2 ? (p.doneBytes - t0.bytes) / elapsed : 0;
-              const eta = rate > 0 ? ((p.totalBytes - p.doneBytes) / rate) * 1000 : null;
               const n = p.active ? p.active.length : 0;
               return {
                 label: n > 1 ? `Comparing ${n} files at once…` : "Comparing contents…",
                 ratio: p.totalBytes ? p.doneBytes / p.totalBytes : null,
                 left: `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)} read`,
                 sub: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files compared${n > 1 ? ` · ${n} at once` : ""}`,
-                right: rate ? `${fmt.size(rate)}/s${eta !== null ? ` · ${fmt.duration(eta)} left` : ""}` : p.totalBytes > 20 * 1024 ** 3 ? `${fmt.size(p.totalBytes)} to read, this takes a while` : "",
+                right: rate(p.doneBytes, p.totalBytes) || (p.totalBytes > 20 * 1024 ** 3 ? `${fmt.size(p.totalBytes)} to read, this takes a while` : ""),
                 current: p.current,
                 active: p.active,
               };
@@ -429,20 +425,16 @@
         });
         if (!ok) return;
         state.lastRemoveMode = plan.options.removeMode;
-        let t0 = null;
+        const rate = MF.rateTracker();
         try {
           const res = await MF.busy("Syncing…", "sync.run", { planId: plan.id }, (p) => {
-            if (!t0 && p.doneBytes > 0) t0 = { time: Date.now(), bytes: p.doneBytes };
-            const elapsed = t0 ? (Date.now() - t0.time) / 1000 : 0;
-            const rate = elapsed > 1 ? (p.doneBytes - t0.bytes) / elapsed : 0;
-            const eta = rate > 0 ? ((p.totalBytes - p.doneBytes) / rate) * 1000 : null;
             const labels = { remove: "Moving old items to the Trash", copy: "Copying", dates: "Setting dates", verify: "Verifying" };
             return {
               label: p.phase === "copy" && p.active && p.active.length > 1 ? `Copying ${p.active.length} files at once${p.target ? ` · ${p.target}` : ""}` : `${labels[p.phase] || "Working"}${p.target ? ` · ${p.target}` : ""}`,
               ratio: p.totalBytes ? p.doneBytes / p.totalBytes : p.phase === "verify" ? 1 : null,
               left: p.totalBytes ? `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)}` : "",
               sub: p.totalBytes ? `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files finished${p.active && p.active.length > 1 ? ` · ${p.active.length} copying now` : ""}` : "",
-              right: rate ? `${fmt.size(rate)}/s${eta !== null ? ` · ${fmt.duration(eta)} left` : ""}` : "",
+              right: rate(p.doneBytes, p.totalBytes),
               current: p.current,
               active: p.phase === "copy" ? p.active : null,
             };

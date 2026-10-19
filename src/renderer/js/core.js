@@ -315,6 +315,28 @@
    * Runs a task behind a progress card. describe(progress) returns
    * { label, ratio (0..1 or null), left, right, sub, current, active } for display.
    */
+  /**
+   * Speed and time-left text for long reads and copies. The speed is measured over the
+   * last ~10 seconds, so a fast start (drive cache) doesn't make the estimate too hopeful.
+   * Call it with every progress event: rate(doneBytes, totalBytes) -> "22 MB/s · 4 min left" or "".
+   */
+  MF.rateTracker = function rateTracker() {
+    const samples = [];
+    return (done, total) => {
+      const now = Date.now();
+      if (!(done > 0)) return "";
+      samples.push({ t: now, b: done });
+      while (samples.length > 2 && now - samples[0].t > 10000) samples.shift();
+      const first = samples[0];
+      const secs = (now - first.t) / 1000;
+      if (secs < 2) return "";
+      const rate = (done - first.b) / secs;
+      if (!(rate > 0)) return "";
+      const eta = total > done ? ((total - done) / rate) * 1000 : null;
+      return `${fmt.size(rate)}/s${eta !== null ? ` · ${fmt.duration(eta)} left` : ""}`;
+    };
+  };
+
   MF.busy = async function busy(title, name, payload, describe, { softStop = null } = {}) {
     const bar = h("div");
     const progress = h("div.progress.indeterminate", bar);

@@ -39,6 +39,15 @@
             save({ theme: v });
           },
         });
+        const tolerance = MF.Segmented({
+          value: s.toleranceMs <= 1 ? 1 : s.toleranceMs >= 2000 ? 2000 : 1000,
+          options: [
+            { value: 1, label: "Exact", title: "Dates must match to the millisecond" },
+            { value: 1000, label: "To the second", title: "Recommended. What Finder shows" },
+            { value: 2000, label: "Within 2 seconds", title: "For FAT32 drives, which store times in 2-second steps" },
+          ],
+          onChange: (v) => save({ toleranceMs: v }),
+        });
         const parallel = MF.Segmented({
           value: String(s.parallelFiles || "auto"),
           options: [
@@ -61,7 +70,8 @@
           ),
           h(
             "div.card.card-pad.group-card",
-            h("h3", "Performance"),
+            h("h3", "Comparing and speed"),
+            h("div.option", h("span.text", h("div.title", "When are two dates the same?"), h("div.desc", "Used by Folder Compare, Folder Modify, Sync and EXIF to decide what needs fixing. Drives with coarser clocks (exFAT, FAT32) are allowed for automatically. New dates are always written exactly.")), tolerance.el),
             h("div.option", h("span.text", h("div.title", "Files at the same time"), h("div.desc", "How many files are compared, analyzed or copied together. Automatic picks 4 for SSDs, 1 for spinning hard disks and 2 otherwise. A slow USB drive is often faster with 1 or 2; a fast SSD with 4 or more. The progress window lists every file in progress.")), parallel.el),
           ),
           h(
