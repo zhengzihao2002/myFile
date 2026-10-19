@@ -25,6 +25,8 @@ const DEFAULT_SETTINGS = {
   toleranceMs: 1000, // dates closer than this count as equal (no screen for it; drives' own time steps are added automatically)
   parallelFiles: "auto", // files read or copied at the same time: auto | 1 .. 16
   confirmBeforeApply: true,
+  // What "Custom" in Folder Compare checks before calling two files identical.
+  customCompare: { size: true, modified: true, created: false, exifDates: true, gps: true, otherMeta: false, contents: false },
 };
 
 class Settings {

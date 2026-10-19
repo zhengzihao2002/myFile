@@ -4,8 +4,8 @@
 
   const { h, icon, fmt, api, replace } = MF;
 
-  const REASONS = { size: "Size differs", content: "Contents differ", type: "File vs folder", link: "Link target", unreadable: "Unreadable" };
-  const CHECKS = { bytes: "Byte-by-byte", quick: "Size + date", size: "Size only", link: "Link" };
+  const REASONS = { size: "Size differs", content: "Contents differ", type: "File vs folder", link: "Link target", unreadable: "Unreadable", date: "Dates differ", metadata: "Metadata differs" };
+  const CHECKS = { bytes: "Byte-by-byte", quick: "Size + date", size: "Size only", custom: "Custom", link: "Link" };
 
   MF.views["folder-compare"] = {
     crumb: "Folder",
@@ -43,7 +43,14 @@
         thorough: { label: "Every byte", hint: "strictest", text: [h("b", "Reads and compares every pair of same-size files."), " Catches any difference inside the files, including EXIF dates and GPS. Slowest on big folders."] },
         size: { label: "Size only", hint: "fastest", text: [h("b", "Same size counts as identical"), "; nothing is read. Fastest, but most EXIF or GPS edits keep the size, so they're missed."] },
       };
-      const datesNote = h("div.mode-help", { style: { marginTop: "4px" } }, icon("calendar"), h("span", "Separately, created and modified dates are compared in every mode and listed under ", h("b", "Different dates"), ". The mode only decides how file contents are checked."));
+      const CUSTOM_ROWS = [["size", "size"], ["modified", "modified date"], ["created", "created date"], ["exifDates", "photo/video dates (EXIF)"], ["gps", "GPS location"], ["otherMeta", "other metadata"], ["contents", "every byte of the contents"]];
+      const customText = () => {
+        const c = { size: true, modified: true, created: false, exifDates: true, gps: true, otherMeta: false, contents: false, ...(MF.settings && MF.settings.customCompare) };
+        const on = CUSTOM_ROWS.filter(([k]) => c[k] && !(c.contents && ["exifDates", "gps", "otherMeta"].includes(k))).map(([, label]) => label);
+        return [h("b", "Identical only if these all match: "), on.length ? on.join(", ") : "nothing (every pair of files at the same path counts as identical)", ". ", c.contents ? "Every byte is read, which covers all metadata. " : "Files are not read in full. ", "Change this in ", h("a", { href: "#", on: { click: (e) => { e.preventDefault(); MF.go("settings"); } } }, "Settings › Comparing and speed"), "."];
+      };
+      MODES.custom = { label: "Custom", hint: "your choices", get text() { return customText(); } };
+      const datesNote = h("div.mode-help", { style: { marginTop: "4px" } }, icon("calendar"), h("span", "Separately, created and modified dates are compared in every mode and listed under ", h("b", "Different dates"), ". The mode only decides how file contents are checked (Custom also lets dates decide)."));
       const modeHelp = h("div.mode-help");
       const showHelp = (v) => replace(modeHelp, icon("info"), h("span", ...MODES[v].text));
       const modeSeg = MF.Segmented({
@@ -85,6 +92,7 @@
           const rate = MF.rateTracker();
           result = await MF.busy("Comparing folders…", "folder.compare", { a: dropA.paths[0], b: dropB.paths[0], options: { content, includeAll } }, (p) => {
             if (p.phase === "scan") return { label: "Reading both folders…", left: `A: ${fmt.num(p.scannedA)} items`, right: `B: ${fmt.num(p.scannedB)} items` };
+            if (p.phase === "metadata") return { label: "Comparing photo and video info…", ratio: p.totalFiles ? p.doneFiles / p.totalFiles : null, left: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, current: p.current };
             if (p.phase === "explain") return { label: "Working out what differs…", ratio: p.totalFiles ? p.doneFiles / p.totalFiles : null, left: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, current: p.current };
             if (p.phase === "content") {
               const n = p.active ? p.active.length : 0;
@@ -139,7 +147,7 @@
           onlyB: { rows: r.onlyB, columns: [col.path, col.size("size"), col.date("Modified", "mtimeMs")] },
           changed: {
             rows: r.changed,
-            columns: [col.path, col.size("sizeA", "A size"), col.size("sizeB", "B size"), col.date("A modified", "mtimeA"), col.date("B modified", "mtimeB"), { label: "Why", width: "130px", render: (x) => h("span.badge.amber", REASONS[x.reason] || x.reason) }, { label: "What differs (click a row for details)", width: "minmax(240px, 1.6fr)", render: (x) => (x.detail ? x.detail.summary : x.reason === "content" ? "Not analysed (too many changed files)" : ""), title: (x) => (x.detail ? x.detail.summary : "") }],
+            columns: [col.path, col.size("sizeA", "A size"), col.size("sizeB", "B size"), col.date("A modified", "mtimeA"), col.date("B modified", "mtimeB"), { label: "Why", width: "130px", render: (x) => h("span.badge.amber", REASONS[x.reason] || x.reason) }, { label: "What differs (click a row for details)", width: "minmax(240px, 1.6fr)", render: (x) => (x.detail ? x.detail.summary : x.note ? x.note : x.reason === "content" ? "Not analysed (too many changed files)" : ""), title: (x) => (x.detail ? x.detail.summary : x.note || "") }],
             onRowClick: showDetail,
           },
           dates: {
@@ -167,7 +175,7 @@
         const tableBox = h("div");
         const detailBox = h("div");
         function showDetail(x) {
-          const d = x.detail;
+          const d = x.detail || (x.tags ? { summary: x.note, tags: x.tags, tagsTotal: x.tagsTotal, metaOnly: true } : null);
           if (!d) return replace(detailBox);
           const shownTags = d.tags.slice(0, 60);
           replace(
@@ -176,7 +184,7 @@
               "div.card-pad",
               { style: { borderTop: "1px solid var(--line)" } },
               h("div", { style: { fontWeight: "650", marginBottom: "4px" } }, x.rel),
-              h("p.muted.small", { style: { margin: "0 0 8px" } }, `${d.summary}. Same size (${fmt.size(x.sizeA)}); ${fmt.num(d.differingBytes)}${d.partial ? "+" : ""} bytes differ${d.firstOffset >= 0 ? `, the first at byte ${fmt.num(d.firstOffset)}` : ""}${d.partial ? ` (only the first ${fmt.size(d.scannedBytes)} were counted)` : ""}.`),
+              h("p.muted.small", { style: { margin: "0 0 8px" } }, d.metaOnly ? `${d.summary}.` : `${d.summary}. Same size (${fmt.size(x.sizeA)}); ${fmt.num(d.differingBytes)}${d.partial ? "+" : ""} bytes differ${d.firstOffset >= 0 ? `, the first at byte ${fmt.num(d.firstOffset)}` : ""}${d.partial ? ` (only the first ${fmt.size(d.scannedBytes)} were counted)` : ""}.`),
               shownTags.length
                 ? MF.VirtualTable({
                     maxHeight: 260,

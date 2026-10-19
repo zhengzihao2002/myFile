@@ -217,3 +217,51 @@ test("folder compare reads as many files together as the files-at-once setting a
     ctx.settings.values.parallelFiles = "auto";
   }
 });
+
+test("custom compare: only the ticked checks decide, and nothing is read in full without 'contents'", async () => {
+  const { makeJpeg } = require("./helpers");
+  const a = tmpDir("cuA");
+  const b = tmpDir("cuB");
+  fs.writeFileSync(path.join(a, "notes.txt"), "abcdefghij");
+  fs.writeFileSync(path.join(b, "notes.txt"), "abcdXfghiY"); // same size, different bytes
+  setMtime(path.join(a, "notes.txt"), T1);
+  setMtime(path.join(b, "notes.txt"), T2); // and a different date
+  const base = { size: true, modified: false, created: false, exifDates: false, gps: false, otherMeta: false, contents: false };
+  const run = (custom) => call("folder.compare", { a, b, options: { content: "custom", custom: { ...base, ...custom } } });
+
+  // Size only ticked: identical, never read, but the date difference is still listed.
+  let r = await run({});
+  assert.equal(r.counts.changed, 0);
+  assert.equal(r.identical[0].check, "custom");
+  assert.equal(r.counts.bytesChecked, 0);
+  assert.equal(r.counts.dateDiffs, 1);
+
+  // Modified date ticked: now it is a change.
+  r = await run({ modified: true });
+  assert.equal(r.changed[0].reason, "date");
+  assert.match(r.changed[0].note, /^Modified date differ/);
+
+  // Contents ticked: the bytes are compared.
+  r = await run({ contents: true });
+  assert.equal(r.changed[0].reason, "content");
+  assert.ok(r.counts.bytesChecked > 0);
+
+  // Photos: dates and GPS are read from the file header, without reading every byte.
+  await makeJpeg(path.join(a, "p.jpg"));
+  fs.copyFileSync(path.join(a, "p.jpg"), path.join(b, "p.jpg"));
+  fs.unlinkSync(path.join(a, "notes.txt"));
+  fs.unlinkSync(path.join(b, "notes.txt"));
+  await ctx.et.write(path.join(a, "p.jpg"), [["DateTimeOriginal", "2020:01:02 03:04:05"], ["GPSLatitude", "10"], ["GPSLatitudeRef", "N"]]);
+  await ctx.et.write(path.join(b, "p.jpg"), [["DateTimeOriginal", "2020:01:02 03:04:05"], ["GPSLatitude", "20"], ["GPSLatitudeRef", "N"]]);
+  fs.copyFileSync(path.join(b, "p.jpg"), path.join(b, "p2.jpg"));
+  r = await run({});
+  assert.equal(r.counts.changed, 0, "metadata not ticked, so ignored");
+  r = await run({ gps: true });
+  assert.equal(r.changed.length, 1);
+  assert.equal(r.changed[0].reason, "metadata");
+  assert.match(r.changed[0].note, /^GPS differ: .*GPSLatitude/);
+  assert.equal(r.counts.bytesChecked, 0);
+  r = await run({ exifDates: true });
+  assert.equal(r.counts.changed, 0, "dates match, only GPS differs");
+  assert.equal(r.identical.find((x) => x.rel === "p.jpg").check, "custom");
+});

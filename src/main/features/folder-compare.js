@@ -104,6 +104,44 @@ async function describeDifference(ctx, fileA, fileB, signal) {
   return { summary, tags: tags.slice(0, 200), tagsTotal: tags.length, text, ...bytes };
 }
 
+const DEFAULT_CUSTOM = { size: true, modified: true, created: false, exifDates: true, gps: true, otherMeta: false, contents: false };
+const DATE_TAG = /^(DateTimeOriginal|DateTimeDigitized|CreateDate|ModifyDate|DateTime|SubSecTime\w*|OffsetTime\w*|MediaCreateDate|MediaModifyDate|TrackCreateDate|TrackModifyDate|CreationDate|DateCreated|TimeCreated|DateTimeCreated|MetadataDate)$/;
+const META_LABELS = { exifDates: "photo/video dates", gps: "GPS", otherMeta: "other metadata" };
+const META_BATCH = 25;
+
+/** Splits one file's ExifTool output into { exifDates, gps, otherMeta } lists of "Tag=value". */
+function metaGroups(row) {
+  const out = { exifDates: new Map(), gps: new Map(), otherMeta: new Map() };
+  for (const [key, value] of Object.entries(row || {})) {
+    if (IGNORED_TAG.test(key) || /^(File|Composite):/.test(key)) continue;
+    const name = key.replace(/^[^:]+:/, "");
+    const kind = /^GPS:/.test(key) || /^GPS/.test(name) ? "gps" : DATE_TAG.test(name) ? "exifDates" : "otherMeta";
+    out[kind].set(key, tagText(value));
+  }
+  return out;
+}
+
+/** Which of the chosen metadata groups differ between two files, with the tags that differ. */
+function metaDifferences(ra, rb, want) {
+  const ga = metaGroups(ra);
+  const gb = metaGroups(rb);
+  const groups = [];
+  const tags = [];
+  for (const kind of want) {
+    const keys = new Set([...ga[kind].keys(), ...gb[kind].keys()]);
+    let differs = false;
+    for (const k of keys) {
+      const x = ga[kind].has(k) ? ga[kind].get(k) : null;
+      const y = gb[kind].has(k) ? gb[kind].get(k) : null;
+      if (x === y) continue;
+      differs = true;
+      tags.push({ tag: k, a: x && x.length > 160 ? `${x.slice(0, 160)}…` : x, b: y && y.length > 160 ? `${y.slice(0, 160)}…` : y });
+    }
+    if (differs) groups.push(kind);
+  }
+  return { groups, tags };
+}
+
 async function compare(ctx, { a, b, options = {} }, task) {
   const settings = ctx.settings.get();
   const opts = {
@@ -112,6 +150,8 @@ async function compare(ctx, { a, b, options = {} }, task) {
     toleranceMs: settings.toleranceMs,
     ...options,
   };
+  const custom = opts.content === "custom" ? { ...DEFAULT_CUSTOM, ...settings.customCompare, ...options.custom } : null;
+  if (custom) opts.custom = custom;
   if (!a || !b) throw new UserError("Choose two folders to compare.");
   if (path.resolve(a) === path.resolve(b)) throw new UserError("Those are the same folder.");
   const started = Date.now();
@@ -133,7 +173,9 @@ async function compare(ctx, { a, b, options = {} }, task) {
   const identical = [];
   const dateDiffs = [];
   const toCheck = [];
+  const toMeta = [];
   const tol = opts.toleranceMs;
+  const metaWant = custom && !custom.contents ? ["exifDates", "gps", "otherMeta"].filter((k) => custom[k]) : [];
 
   const dateFlags = (x, y) => {
     const created = Math.abs(x.birthMs - y.birthMs) > tol;
@@ -163,6 +205,24 @@ async function compare(ctx, { a, b, options = {} }, task) {
       else identical.push({ rel, size: 0, check: "link", mtimeA: ia.mtimeMs, mtimeB: ib.mtimeMs, birthA: ia.birthMs, birthB: ib.birthMs });
       continue;
     }
+    if (custom) {
+      // Only what the user ticked in Settings decides; everything else is ignored.
+      const row = (reason, extra) => ({ rel, reason, sizeA: ia.size, sizeB: ib.size, mtimeA: ia.mtimeMs, mtimeB: ib.mtimeMs, ...extra });
+      if ((custom.size || custom.contents) && ia.size !== ib.size) {
+        changed.push(row("size"));
+        continue;
+      }
+      const flag = dateFlags(ia, ib);
+      const bad = [custom.modified && (flag === "modified" || flag === "both") && "modified", custom.created && (flag === "created" || flag === "both") && "created"].filter(Boolean);
+      if (bad.length) {
+        changed.push(row("date", { note: `${bad.length === 2 ? "Modified and created dates" : bad[0] === "modified" ? "Modified date" : "Created date"} differ` }));
+        continue;
+      }
+      if (custom.contents && ia.size > 0) toCheck.push({ rel, ia, ib });
+      else if (metaWant.length && ia.size > 0) toMeta.push({ rel, ia, ib });
+      else identical.push({ rel, size: ia.size, check: "custom", ia, ib });
+      continue;
+    }
     if (ia.size !== ib.size) {
       changed.push({ rel, reason: "size", sizeA: ia.size, sizeB: ib.size, mtimeA: ia.mtimeMs, mtimeB: ib.mtimeMs });
       continue;
@@ -178,6 +238,51 @@ async function compare(ctx, { a, b, options = {} }, task) {
     if (!rel || scanA.items.has(rel)) continue;
     if (ib.kind === "dir") foldersOnlyB.push(rel);
     else onlyB.push(fileRow(ib));
+  }
+
+  // Custom, without reading every byte: compare just the metadata groups that were ticked.
+  if (toMeta.length) {
+    const reportMeta = throttle((p) => task.progress(p), 150);
+    let metaDone = 0;
+    for (let i = 0; i < toMeta.length; i += META_BATCH) {
+      const batch = toMeta.slice(i, i + META_BATCH);
+      const read = async (side) => {
+        const files = batch.map((x) => x[side].path);
+        try {
+          return await ctx.et.readJson(files, ["-G1", "-a", "-s"], { signal: task.signal });
+        } catch (err) {
+          if (err.code === "CANCELLED") throw err;
+          return [];
+        }
+      };
+      const [rowsA, rowsB] = await Promise.all([read("ia"), read("ib")]);
+      // ExifTool answers per file in order, tagged with SourceFile; match by path to be safe.
+      const byFile = (rows) => new Map(rows.map((r) => [String(r.SourceFile).normalize("NFC"), r]));
+      const mapA = byFile(rowsA);
+      const mapB = byFile(rowsB);
+      for (const x of batch) {
+        const diff = metaDifferences(mapA.get(x.ia.path.normalize("NFC")), mapB.get(x.ib.path.normalize("NFC")), metaWant);
+        if (diff.groups.length) {
+          const names = diff.groups.map((k) => META_LABELS[k]);
+          changed.push({
+            rel: x.rel,
+            reason: "metadata",
+            sizeA: x.ia.size,
+            sizeB: x.ib.size,
+            mtimeA: x.ia.mtimeMs,
+            mtimeB: x.ib.mtimeMs,
+            note: `${names.join(" and ")} differ: ${diff.tags.slice(0, 3).map((t) => t.tag.replace(/^[^:]+:/, "")).join(", ")}${diff.tags.length > 3 ? ` +${diff.tags.length - 3} more` : ""}`,
+            tags: diff.tags.slice(0, 200),
+            tagsTotal: diff.tags.length,
+          });
+        } else {
+          identical.push({ rel: x.rel, size: x.ia.size, check: "custom", ia: x.ia, ib: x.ib });
+        }
+        metaDone++;
+      }
+      reportMeta({ phase: "metadata", doneFiles: metaDone, totalFiles: toMeta.length, current: batch[batch.length - 1].rel });
+    }
+    reportMeta.flush();
   }
 
   // Same size but possibly different bytes: read and compare.

@@ -25,7 +25,7 @@ You always see a table of *current → new* values before anything is written, a
 
 ### Folder
 
-- **Compare**: drop two folders to see what's only in A, only in B, changed, identical, and identical but with different dates, plus a breakdown by file type. Contents are compared byte by byte where it matters. Export the result as an HTML report.
+- **Compare**: drop two folders to see what's only in A, only in B, changed, identical, and identical but with different dates, plus a breakdown by file type. Contents are compared byte by byte where it matters, or choose Smart, Every byte, Size only, or Custom, where Settings lets you tick exactly what must match (size, dates, EXIF dates, GPS, other metadata, contents) without reading every byte. Export the result as an HTML report.
 - **Modify**: drop a reference (a folder, or an HTML index from Generate HTML) and one or more target folders. myFile first checks that each target has exactly the same names and nesting. Dates and EXIF aren't part of that check, because they're what gets fixed. Then it sets the created and modified dates of every file and folder, and the EXIF dates inside photos and videos, to the reference's values. Targets that don't match are never touched.
 - **Generate HTML**: saves a folder's whole tree, with created, modified and EXIF dates, as one self-contained web page with search, sorting and the oldest/newest items. The page carries its data, so it works as a **reference for Folder › Modify**: you can restore the dates onto a copy of the folder later, even after the original is gone. HTML files made by the older `file_directory.py` script work as references too.
 
