@@ -64,27 +64,31 @@
         const custom = { size: true, modified: true, created: false, exifDates: true, gps: true, otherMeta: false, contents: false, ...s.customCompare };
         const MATRIX = [
           { key: "size", label: "Size", ref: ["yes", "yes", "yes"] },
-          { key: "modified", label: "Modified date", ref: ["same → skip read", "no", "no"] },
+          { key: "modified", label: "Modified date", ref: ["Dates match: file not read", "no", "no"] },
           { key: "created", label: "Created date", ref: ["no", "no", "no"] },
-          { key: "exifDates", label: "Photo / video dates (EXIF)", ref: ["When modified date differs", "yes", "no"], inContents: true },
-          { key: "gps", label: "GPS location", ref: ["When modified date differs", "yes", "no"], inContents: true },
-          { key: "otherMeta", label: "Other metadata (camera, etc.)", ref: ["When modified date differs", "yes", "no"], inContents: true },
-          { key: "contents", label: "Every byte of the contents", ref: ["When modified date differs", "yes", "no"] },
+          { key: "exifDates", label: "Photo / video dates (EXIF)", ref: ["Read in full only if the modified date differs", "yes", "no"], inContents: true },
+          { key: "gps", label: "GPS location", ref: ["Read in full only if the modified date differs", "yes", "no"], inContents: true },
+          { key: "otherMeta", label: "Other metadata (camera, etc.)", ref: ["Read in full only if the modified date differs", "yes", "no"], inContents: true },
+          { key: "contents", label: "Every byte of the contents", ref: ["Read in full only if the modified date differs", "yes", "no"] },
         ];
-        const refCell = (v) => h("span.cm-ref" + (v === "no" ? ".no" : ""), v === "yes" ? "✓" : v === "no" ? "–" : v);
+        const refCell = (v) => h("div.cm-ref" + (v === "no" ? ".no" : ""), v === "yes" ? "✓" : v === "no" ? "–" : v);
         const matrix = h("div.cm-grid");
+        const matrixNote = h("p.muted.small", { style: { margin: "10px 0 0" } }, h("b", "Smart: "), "if a file’s size and modified date match, it counts as identical and is not read. Only when the modified date differs is the file read in full, which compares its contents, EXIF, GPS and all other metadata.");
         const drawMatrix = () => {
-          const head = ["", "Smart", "Every byte", "Size only", "Custom"].map((t, i) => h("div.cm-head" + (i === 4 ? ".custom" : ""), t));
+          const head = h("div.cm-row.cm-headrow", ...["", "Smart", "Every byte", "Size only", "Custom"].map((t, i) => h("div.cm-head" + (i === 4 ? ".custom" : ""), t)));
           const rows = MATRIX.flatMap((m) => {
             const implied = m.inContents && custom.contents;
             const sw = h("input", { type: "checkbox", checked: implied || Boolean(custom[m.key]), disabled: implied, on: { change: () => { custom[m.key] = sw.checked; save({ customCompare: { ...custom } }); drawMatrix(); } } });
             return [
-              h("div.cm-label", m.label, implied ? h("span.cm-sub", "included in every byte") : null),
-              ...m.ref.map(refCell),
-              h("label.cm-custom", h("span.switch", sw, h("span.track"), h("span.thumb"))),
+              h(
+                "div.cm-row",
+                h("div.cm-label", m.label, implied ? h("span.cm-sub", "included in every byte") : null),
+                ...m.ref.map(refCell),
+                h("label.cm-custom", h("span.switch", sw, h("span.track"), h("span.thumb"))),
+              ),
             ];
           });
-          replace(matrix, ...head, ...rows);
+          replace(matrix, head, ...rows);
         };
         drawMatrix();
 
@@ -105,8 +109,9 @@
           h(
             "div.card.card-pad.group-card",
             h("h3", "What counts as identical (Folder Compare and Sync)"),
-            h("p.muted.small", { style: { margin: "4px 0 10px" } }, "Pick Custom in Folder Compare or Sync to use the switches in the last column; two files at the same path are identical only if everything switched on matches. The other three columns just show what the built-in modes check. Smart does not read a file at all when its size and modified date match; it reads every byte (which covers EXIF, GPS and the rest) only when the modified date differs. Reading every byte is what catches edits to anything inside a file, so with it on the metadata rows are covered automatically. Without it, files are not read in full: photo and video info is read from the file header only, which is much faster."),
+            h("p.muted.small", { style: { margin: "4px 0 10px" } }, "Pick Custom in Folder Compare or Sync to use the switches in the last column; two files at the same path are identical only if everything switched on matches. The other three columns just show what the built-in modes check. Reading every byte is what catches edits to anything inside a file, so with it on the metadata rows are covered automatically. Without it, files are not read in full: photo and video info is read from the file header only, which is much faster."),
             matrix,
+            matrixNote,
           ),
           h(
             "div.card.card-pad.group-card",

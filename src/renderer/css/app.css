@@ -826,13 +826,13 @@ select.select {
 .mode-help { margin-top: 8px; display: flex; gap: 8px; align-items: flex-start; max-width: 520px; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .mode-help b { color: var(--ink); font-weight: 600; }
 
-/* Settings: compare-mode matrix */
-.cm-grid { display: grid; grid-template-columns: minmax(180px, 1.6fr) repeat(3, minmax(70px, 1fr)) 90px; align-items: center; font-size: 12.5px; }
-.cm-grid > div, .cm-grid > label { padding: 9px 8px; border-top: 1px solid var(--line); }
-.cm-grid > .cm-head { border-top: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); text-align: center; }
-.cm-grid > .cm-head.custom { color: var(--accent); }
-.cm-label { font-weight: 550; }
+/* Settings: compare-mode matrix. Each row is its own grid, so every cell shares one row height and the lines stay straight. */
+.cm-row { display: grid; grid-template-columns: minmax(180px, 1.6fr) repeat(3, minmax(90px, 1fr)) 90px; align-items: stretch; border-top: 1px solid var(--line); font-size: 12.5px; }
+.cm-row.cm-headrow { border-top: 0; }
+.cm-row > * { display: flex; align-items: center; justify-content: center; padding: 9px 8px; }
+.cm-head { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.cm-head.custom { color: var(--accent); }
+.cm-row > .cm-label { justify-content: flex-start; flex-direction: column; align-items: flex-start; font-weight: 550; }
 .cm-sub { display: block; font-weight: 400; font-size: 11px; color: var(--faint); }
-.cm-ref { align-self: stretch; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--muted); font-size: 11.5px; padding: 9px 8px; border-top: 1px solid var(--line); }
+.cm-ref { text-align: center; color: var(--muted); font-size: 11.5px; }
 .cm-ref.no { color: var(--faint); }
-.cm-custom { align-self: stretch; display: flex; align-items: center; justify-content: center; }
