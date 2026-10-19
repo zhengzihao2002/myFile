@@ -64,16 +64,16 @@
         const custom = { size: true, modified: true, created: false, exifDates: true, gps: true, otherMeta: false, contents: false, ...s.customCompare };
         const MATRIX = [
           { key: "size", label: "Size", ref: ["yes", "yes", "yes"] },
-          { key: "modified", label: "Modified date", ref: ["Dates match: file not read", "no", "no"] },
+          { key: "modified", label: "Modified date", ref: ["yes", "no", "no"] },
           { key: "created", label: "Created date", ref: ["no", "no", "no"] },
-          { key: "exifDates", label: "Photo / video dates (EXIF)", ref: ["Read in full only if the modified date differs", "yes", "no"], inContents: true },
-          { key: "gps", label: "GPS location", ref: ["Read in full only if the modified date differs", "yes", "no"], inContents: true },
-          { key: "otherMeta", label: "Other metadata (camera, etc.)", ref: ["Read in full only if the modified date differs", "yes", "no"], inContents: true },
-          { key: "contents", label: "Every byte of the contents", ref: ["Read in full only if the modified date differs", "yes", "no"] },
+          { key: "exifDates", label: "Photo / video dates (EXIF)", ref: ["Only checked if modified date differs", "yes", "no"], inContents: true },
+          { key: "gps", label: "GPS location", ref: ["Only checked if modified date differs", "yes", "no"], inContents: true },
+          { key: "otherMeta", label: "Other metadata (camera, etc.)", ref: ["Only checked if modified date differs", "yes", "no"], inContents: true },
+          { key: "contents", label: "Every byte of the contents", ref: ["Only checked if modified date differs", "yes", "no"] },
         ];
         const refCell = (v) => h("div.cm-ref" + (v === "no" ? ".no" : ""), v === "yes" ? "✓" : v === "no" ? "–" : v);
         const matrix = h("div.cm-grid");
-        const matrixNote = h("p.muted.small", { style: { margin: "10px 0 0" } }, h("b", "Smart: "), "if a file’s size and modified date match, it counts as identical and is not read. Only when the modified date differs is the file read in full, which compares its contents, EXIF, GPS and all other metadata.");
+        const matrixNote = h("p.muted.small", { style: { margin: "10px 0 0" } }, h("b", "Smart: "), "size and modified date are always compared. If both match, the file counts as identical and nothing else is checked (the file isn’t read). Only when the modified date differs does it read the file in full, which then compares the last four rows: EXIF dates, GPS, other metadata and contents.");
         const drawMatrix = () => {
           const head = h("div.cm-row.cm-headrow", ...["", "Smart", "Every byte", "Size only", "Custom"].map((t, i) => h("div.cm-head" + (i === 4 ? ".custom" : ""), t)));
           const rows = MATRIX.flatMap((m) => {
