@@ -84,8 +84,7 @@ function buildTree(items, snapshots) {
 }
 
 async function generateIndex(ctx, { folder, output, options = {} }, task) {
-  const settings = ctx.settings.get();
-  const opts = { exif: true, includeAll: settings.includeAll, ...options };
+  const opts = { exif: true, includeAll: false, ...options };
   if (!folder) throw new UserError("Choose a folder first.");
   if (!output) throw new UserError("Choose where to save the HTML file.");
 

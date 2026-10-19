@@ -18,12 +18,11 @@
     title: "FileSync",
     subtitle: "Make other folders or drives exact clones of a reference: same files, same EXIF, same dates.",
     mount() {
-      const settings = MF.settings || {};
       const state = {
         mode: "direct",
         wantSplit: false, // chosen before there were two targets
         scope: "all",
-        options: { mirror: false, verify: "quick", intoSubfolder: false, strategy: "balance", avoidAppleDouble: true, removeMode: "trash", includeAll: Boolean(settings.includeAll), assignments: {} },
+        options: { mirror: false, verify: "quick", intoSubfolder: false, strategy: "balance", avoidAppleDouble: true, removeMode: "trash", includeAll: false, assignments: {} },
         tree: null, // reference children for the picker
         children: new Map(), // rel -> children
         open: new Set(),

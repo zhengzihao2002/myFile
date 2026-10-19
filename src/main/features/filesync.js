@@ -184,7 +184,7 @@ async function analyze(ctx, { reference, targets, mode = "direct", selection = n
     intoSubfolder: false,
     avoidAppleDouble: true, // no "._" files on exFAT/FAT drives
     removeMode: "trash", // or "delete"
-    includeAll: settings.includeAll,
+    includeAll: false,
     toleranceMs: settings.toleranceMs,
     assignments: {},
     ...options,

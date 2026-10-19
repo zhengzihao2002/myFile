@@ -22,9 +22,7 @@ function writeJson(file, value) {
 
 const DEFAULT_SETTINGS = {
   theme: "system", // system | light | dark
-  toleranceMs: 1000, // dates closer than this count as equal
-  includeAll: false, // include .DS_Store and friends
-  compareContent: "smart", // smart | thorough | size
+  toleranceMs: 1000, // dates closer than this count as equal (no screen for it; drives' own time steps are added automatically)
   parallelFiles: "auto", // files read or copied at the same time: auto | 1 .. 16
   confirmBeforeApply: true,
 };

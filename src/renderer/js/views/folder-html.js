@@ -9,8 +9,7 @@
     title: "Generate HTML",
     subtitle: "Save a folder's whole tree, with every date, as one elegant web page. It doubles as a reference for Folder › Modify.",
     mount() {
-      const settings = MF.settings || {};
-      const options = { exif: true, includeAll: Boolean(settings.includeAll) };
+      const options = { exif: true, includeAll: false };
       const out = h("div.stack");
 
       const drop = MF.DropZone({ label: "Folder", accept: "folder", title: "Drop the folder to index", subtitle: "Everything inside it, however deep, is listed", glyph: "html", onChange: () => { replace(out); genBtn.disabled = !drop.paths.length; } });

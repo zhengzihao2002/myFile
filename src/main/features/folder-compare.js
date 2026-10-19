@@ -107,8 +107,8 @@ async function describeDifference(ctx, fileA, fileB, signal) {
 async function compare(ctx, { a, b, options = {} }, task) {
   const settings = ctx.settings.get();
   const opts = {
-    content: settings.compareContent,
-    includeAll: settings.includeAll,
+    content: "smart",
+    includeAll: false,
     toleranceMs: settings.toleranceMs,
     ...options,
   };

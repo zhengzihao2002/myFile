@@ -9,8 +9,7 @@
     title: "Modify",
     subtitle: "Make the dates in copies match the original: every file and folder, plus EXIF dates inside photos and videos.",
     mount() {
-      const settings = MF.settings || {};
-      const options = { created: true, modified: true, exif: true, requireSameSize: false, includeAll: Boolean(settings.includeAll) };
+      const options = { created: true, modified: true, exif: true, requireSameSize: false, includeAll: false };
       let plan = null;
 
       const refInfo = h("div");
