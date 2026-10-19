@@ -25,6 +25,7 @@ const { UserError, throttle, mapLimit, filesAtOnce, checkCancel, parentRel, dept
 const { scanTree, childIndex, itemFromStat } = require("../lib/scan");
 const { ignoreFor } = require("../lib/ignore");
 const { sameContent } = require("../lib/samefile");
+const { resolveCustom, metaWanted, metaNote, compareMeta } = require("../lib/custom-compare");
 const { applyTimes, canSetBirthtime } = require("../lib/filetimes");
 const { copyFileExact, diskSpace } = require("../lib/copy");
 const { brief, nameProblem, isVolumeSystemItem } = require("../lib/volumes");
@@ -189,6 +190,9 @@ async function analyze(ctx, { reference, targets, mode = "direct", selection = n
     assignments: {},
     ...options,
   };
+  const custom = opts.verify === "custom" ? resolveCustom(settings, options.custom) : null;
+  if (custom) opts.custom = custom;
+  const metaWant = custom ? metaWanted(custom) : [];
   if (!reference) throw new UserError("Choose a reference folder.");
   targets = (targets || []).filter(Boolean);
   if (!targets.length) throw new UserError("Add at least one target folder.");
@@ -356,6 +360,11 @@ async function analyze(ctx, { reference, targets, mode = "direct", selection = n
   // Work out the actions for each target.
   const birthMatters = canSetBirthtime(); // creation dates only count where they can be set (macOS)
   const compareJobs = [];
+  const metaJobs = [];
+  // Which dates count: all of them, except that Custom can leave either one out.
+  const wantModified = !custom || custom.modified;
+  const wantCreated = !custom || custom.created;
+  const datesDifferAt = (r, x, tol) => (wantCreated && birthMatters && r.kind !== "link" && Math.abs(r.birthMs - x.birthMs) > tol) || (wantModified && Math.abs(r.mtimeMs - x.mtimeMs) > tol);
   for (const t of tinfo) {
     const mine = new Set([...assign].filter(([, list]) => list.includes(t.index)).map(([u]) => u));
     t.units = [...mine];
@@ -363,7 +372,7 @@ async function analyze(ctx, { reference, targets, mode = "direct", selection = n
     t.warnings = [];
     t.stats = { mkdir: 0, copy: 0, copyBytes: 0, replace: 0, replaceBytes: 0, link: 0, touch: 0, remove: 0, removeBytes: 0, unchanged: 0, unchangedBytes: 0, blocked: 0 };
     const tol = t.tol;
-    const datesDiffer = (r, x) => (birthMatters && r.kind !== "link" && Math.abs(r.birthMs - x.birthMs) > tol) || Math.abs(r.mtimeMs - x.mtimeMs) > tol;
+    const datesDiffer = (r, x) => datesDifferAt(r, x, tol);
 
     for (const rel of refRels) {
       if (rel && !mine.has(unitOf(rel))) continue;
@@ -382,12 +391,22 @@ async function analyze(ctx, { reference, targets, mode = "direct", selection = n
         continue;
       }
       if (r.kind === "file") {
-        if (x.size !== r.size) {
+        if (x.size !== r.size && (!custom || custom.size || custom.contents)) {
           t.actions.push({ op: "replace", ...base, oldKind: "file", oldSize: x.size, oldPath: x.path, reason: "size" });
           continue;
         }
         const exactTime = Math.abs(x.mtimeMs - r.mtimeMs) <= Math.max(1, t.volume.granularityMs);
-        if (r.size > 0 && (opts.verify === "thorough" || !exactTime)) {
+        if (custom) {
+          // Contents (every byte), or just the ticked metadata read from the file headers.
+          if (r.size > 0 && x.size === r.size && custom.contents) {
+            compareJobs.push({ t, rel, r, x, base });
+            continue;
+          }
+          if (r.size > 0 && metaWant.length) {
+            metaJobs.push({ t, rel, r, x, base });
+            continue;
+          }
+        } else if (r.size > 0 && opts.verify !== "size" && (opts.verify === "thorough" || !exactTime)) {
           compareJobs.push({ t, rel, r, x, base });
           continue;
         }
@@ -424,6 +443,15 @@ async function analyze(ctx, { reference, targets, mode = "direct", selection = n
     }
   }
 
+  // The file is the same as the reference: only its dates may still need setting.
+  const settleSame = (job) => {
+    if (datesDifferAt(job.r, job.x, job.t.tol)) job.t.actions.push({ op: "touch", ...job.base, reason: "dates" });
+    else {
+      job.t.stats.unchanged++;
+      job.t.stats.unchangedBytes += job.base.size;
+    }
+  };
+
   // Same size but different date (or thorough mode): compare the bytes.
   const totalBytes = compareJobs.reduce((s, j) => s + j.r.size, 0);
   const totalFiles = compareJobs.length;
@@ -455,18 +483,27 @@ async function analyze(ctx, { reference, targets, mode = "direct", selection = n
         doneFiles++;
         sendCompare();
       }
-      const tol = job.t.tol;
       if (!same) job.t.actions.push({ op: "replace", ...job.base, oldKind: "file", oldSize: job.x.size, oldPath: job.x.path, reason: "content" });
-      else if ((birthMatters && Math.abs(job.r.birthMs - job.x.birthMs) > tol) || Math.abs(job.r.mtimeMs - job.x.mtimeMs) > tol) {
-        job.t.actions.push({ op: "touch", ...job.base, reason: "dates" });
-      } else {
-        job.t.stats.unchanged++;
-        job.t.stats.unchangedBytes += job.base.size;
-      }
+      else settleSame(job);
     },
     task.signal,
   );
   report.flush();
+
+  // Custom without "every byte": compare only the ticked metadata, read from the file headers.
+  if (metaJobs.length) {
+    const diffs = await compareMeta(
+      ctx.et,
+      metaJobs.map((j) => [j.r.path, j.x.path]),
+      metaWant,
+      { signal: task.signal, onProgress: (done) => report({ phase: "metadata", doneFiles: done, totalFiles: metaJobs.length, current: metaJobs[done - 1].rel }) },
+    );
+    report.flush();
+    metaJobs.forEach((job, i) => {
+      if (diffs[i].groups.length) job.t.actions.push({ op: "replace", ...job.base, oldKind: "file", oldSize: job.x.size, oldPath: job.x.path, reason: "metadata", note: metaNote(diffs[i]) });
+      else settleSame(job);
+    });
+  }
 
   // Drive-specific checks, then totals.
   const order = { remove: 0, replace: 1, mkdir: 2, copy: 3, link: 4, touch: 5 };
@@ -851,8 +888,8 @@ async function verifyTarget(ref, t, included, opts, signal) {
     if (!x) problem = "missing";
     else if (x.kind !== r.kind) problem = "wrong type";
     else if (r.kind === "file" && x.size !== r.size) problem = "size differs";
-    else if (Math.abs(x.mtimeMs - r.mtimeMs) > tol) problem = "modified date differs";
-    else if (r.kind !== "link" && canSetBirthtime() && Math.abs(x.birthMs - r.birthMs) > tol) problem = "created date differs";
+    else if ((!opts.custom || opts.custom.modified) && Math.abs(x.mtimeMs - r.mtimeMs) > tol) problem = "modified date differs";
+    else if ((!opts.custom || opts.custom.created) && r.kind !== "link" && canSetBirthtime() && Math.abs(x.birthMs - r.birthMs) > tol) problem = "created date differs";
     if (problem) {
       mismatches++;
       if (sample.length < 20) sample.push(`${rel}: ${problem}`);

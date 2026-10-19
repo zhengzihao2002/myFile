@@ -12,7 +12,7 @@
     touch: { label: "Fix dates", color: "var(--teal)", badge: "green" },
     remove: { label: "To Trash", color: "var(--red)", badge: "red" },
   };
-  const REASON = { size: "size differs", content: "contents differ", type: "file ↔ folder", dates: "dates differ", extra: "not in reference", elsewhere: "lives on another target" };
+  const REASON = { size: "size differs", content: "contents differ", type: "file ↔ folder", dates: "dates differ", metadata: "photo/video info differs", extra: "not in reference", elsewhere: "lives on another target" };
 
   MF.views.filesync = {
     title: "FileSync",
@@ -54,7 +54,22 @@
       });
       const modeHelp = h("div.muted.small", { style: { marginTop: "8px" } });
       const mirrorOpt = MF.Option({ title: "Remove what the reference doesn't have", desc: "Items in a target that aren't in the reference are removed, making it an exact mirror. A drive's own system folders are never touched.", checked: false, onChange: (v) => { state.options.mirror = v; inputsChanged(); } });
-      const verifyOpt = MF.Option({ title: "Compare contents byte by byte", desc: "Reads every file on both sides and compares them. Much slower (about as long as copying everything), but catches changes that keep the same size and date. Nothing is written. Otherwise files with the same size and date count as identical.", checked: false, onChange: (v) => { state.options.verify = v ? "thorough" : "quick"; inputsChanged(); } });
+      // How a file already on a target is judged "up to date" (the same four choices as Folder Compare).
+      const VERIFY = {
+        quick: { label: "Smart", hint: "recommended", text: [h("b", "Same size and same modified date"), " count as up to date without reading them. If only the date differs, both files are read: identical contents just get their dates fixed, different contents are copied again."] },
+        thorough: { label: "Every byte", hint: "strictest", text: [h("b", "Reads every file on both sides and compares them."), " Much slower (about as long as copying everything), but catches changes that keep the same size and date. Nothing is written."] },
+        size: { label: "Size only", hint: "fastest", text: [h("b", "Same size counts as the same file"), "; nothing is read. Differing dates are still fixed, but a file edited without changing its size is not copied again."] },
+        custom: { label: "Custom", hint: "your choices", get text() { return MF.customChecksText("A date you tick that differs is just set again; anything else you tick that differs makes the file copy again. "); } },
+      };
+      const verifyHelp = h("div.desc");
+      const showVerify = (v) => replace(verifyHelp, ...VERIFY[v].text);
+      const verifySeg = MF.Segmented({
+        value: state.options.verify,
+        options: Object.entries(VERIFY).map(([value, m]) => ({ value, label: `${m.label} · ${m.hint}` })),
+        onChange: (v) => { state.options.verify = v; showVerify(v); inputsChanged(); },
+      });
+      showVerify(state.options.verify);
+      const verifyOpt = { el: h("div.option", { style: { display: "block" } }, h("div.title", "How to tell a file is already up to date"), verifyHelp, h("div", { style: { marginTop: "8px" } }, verifySeg.el)) };
       const subOpt = MF.Option({ title: "Put the clone in a subfolder", desc: "Creates a folder named after the reference inside each target, instead of using the target folder itself.", checked: false, onChange: (v) => { state.options.intoSubfolder = v; inputsChanged(); } });
       const strategySeg = MF.Segmented({
         value: state.options.strategy,
@@ -251,6 +266,7 @@
                 active: p.active,
               };
             }
+            if (p.phase === "metadata") return { label: "Comparing photo and video info…", ratio: p.totalFiles ? p.doneFiles / p.totalFiles : null, left: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, current: p.current };
             return {};
           });
           renderPlan();

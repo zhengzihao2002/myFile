@@ -253,6 +253,23 @@
     };
   };
 
+  /** "Identical only if these all match: size, modified date, ..." for the Custom compare choice, with a link to Settings. */
+  MF.customChecksText = function customChecksText(extra) {
+    const c = { size: true, modified: true, created: false, exifDates: true, gps: true, otherMeta: false, contents: false, ...(MF.settings && MF.settings.customCompare) };
+    const rows = [["size", "size"], ["modified", "modified date"], ["created", "created date"], ["exifDates", "photo/video dates (EXIF)"], ["gps", "GPS location"], ["otherMeta", "other metadata"], ["contents", "every byte of the contents"]];
+    const on = rows.filter(([k]) => c[k] && !(c.contents && ["exifDates", "gps", "otherMeta"].includes(k))).map(([, label]) => label);
+    return [
+      h("b", "Identical only if these all match: "),
+      on.length ? on.join(", ") : "nothing (every pair of files at the same path counts as identical)",
+      ". ",
+      c.contents ? "Every byte is read, which covers all metadata. " : "Files are not read in full. ",
+      extra || null,
+      "Change this in ",
+      h("a", { href: "#", on: { click: (e) => { e.preventDefault(); MF.go("settings"); } } }, "Settings › Comparing and speed"),
+      ".",
+    ];
+  };
+
   MF.Option = function Option({ title, desc, checked, onChange, disabled }) {
     const input = h("input", { type: "checkbox", checked: Boolean(checked), disabled: Boolean(disabled), on: { change: () => onChange && onChange(input.checked) } });
     const el = h("label.option", h("span.text", h("div.title", title), desc ? h("div.desc", desc) : null), h("span.switch", input, h("span.track"), h("span.thumb")));

@@ -43,13 +43,7 @@
         thorough: { label: "Every byte", hint: "strictest", text: [h("b", "Reads and compares every pair of same-size files."), " Catches any difference inside the files, including EXIF dates and GPS. Slowest on big folders."] },
         size: { label: "Size only", hint: "fastest", text: [h("b", "Same size counts as identical"), "; nothing is read. Fastest, but most EXIF or GPS edits keep the size, so they're missed."] },
       };
-      const CUSTOM_ROWS = [["size", "size"], ["modified", "modified date"], ["created", "created date"], ["exifDates", "photo/video dates (EXIF)"], ["gps", "GPS location"], ["otherMeta", "other metadata"], ["contents", "every byte of the contents"]];
-      const customText = () => {
-        const c = { size: true, modified: true, created: false, exifDates: true, gps: true, otherMeta: false, contents: false, ...(MF.settings && MF.settings.customCompare) };
-        const on = CUSTOM_ROWS.filter(([k]) => c[k] && !(c.contents && ["exifDates", "gps", "otherMeta"].includes(k))).map(([, label]) => label);
-        return [h("b", "Identical only if these all match: "), on.length ? on.join(", ") : "nothing (every pair of files at the same path counts as identical)", ". ", c.contents ? "Every byte is read, which covers all metadata. " : "Files are not read in full. ", "Change this in ", h("a", { href: "#", on: { click: (e) => { e.preventDefault(); MF.go("settings"); } } }, "Settings › Comparing and speed"), "."];
-      };
-      MODES.custom = { label: "Custom", hint: "your choices", get text() { return customText(); } };
+      MODES.custom = { label: "Custom", hint: "your choices", get text() { return MF.customChecksText(); } };
       const datesNote = h("div.mode-help", { style: { marginTop: "4px" } }, icon("calendar"), h("span", "Separately, created and modified dates are compared in every mode and listed under ", h("b", "Different dates"), ". The mode only decides how file contents are checked (Custom also lets dates decide)."));
       const modeHelp = h("div.mode-help");
       const showHelp = (v) => replace(modeHelp, icon("info"), h("span", ...MODES[v].text));

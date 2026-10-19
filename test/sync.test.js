@@ -249,3 +249,48 @@ test("with 8 files at once, progress lists more than four of them", async () => 
     ctx.settings.values.parallelFiles = "auto";
   }
 });
+
+test("sync can judge files by Size only or by Custom choices", async () => {
+  const { makeJpeg } = require("./helpers");
+  const ref = tmpDir("svRef");
+  const target = tmpDir("svTarget");
+  fs.writeFileSync(path.join(ref, "notes.txt"), "abcdefghij");
+  fs.writeFileSync(path.join(target, "notes.txt"), "abcdXfghiY"); // same size, different bytes
+  setMtime(path.join(ref, "notes.txt"), T1);
+  setMtime(path.join(target, "notes.txt"), T1 + 86400000); // and a different date
+  const base = { size: true, modified: false, created: false, exifDates: false, gps: false, otherMeta: false, contents: false };
+  const stats = async (verify, custom) => {
+    const plan = await call("sync.analyze", { reference: ref, targets: [target], options: { verify, custom: { ...base, ...custom } } });
+    return { s: plan.targets[0].stats, actions: plan.targets[0].actions || [] };
+  };
+
+  let r = await stats("quick");
+  assert.equal(r.s.replace, 1, "Smart reads the file, finds different bytes, copies it again");
+  r = await stats("size");
+  assert.equal(r.s.replace, 0, "Size only never reads the bytes");
+  assert.equal(r.s.touch, 1, "but the differing date is still fixed");
+  r = await stats("custom", {});
+  assert.equal(r.s.replace + r.s.touch, 0, "Custom with only size ticked ignores dates too");
+  assert.ok(r.s.unchanged >= 1, "the file counts as unchanged");
+  r = await stats("custom", { modified: true });
+  assert.equal(r.s.touch, 1);
+  assert.equal(r.s.replace, 0);
+  r = await stats("custom", { contents: true });
+  assert.equal(r.s.replace, 1);
+
+  // Photos: only the ticked metadata is read, from the headers.
+  fs.unlinkSync(path.join(ref, "notes.txt"));
+  fs.unlinkSync(path.join(target, "notes.txt"));
+  await makeJpeg(path.join(ref, "p.jpg"));
+  fs.copyFileSync(path.join(ref, "p.jpg"), path.join(target, "p.jpg"));
+  await et.write(path.join(ref, "p.jpg"), [["GPSLatitude", "10"], ["GPSLatitudeRef", "N"]]);
+  await et.write(path.join(target, "p.jpg"), [["GPSLatitude", "20"], ["GPSLatitudeRef", "N"]]);
+  setMtime(path.join(target, "p.jpg"), fs.statSync(path.join(ref, "p.jpg")).mtimeMs);
+  // the target copy was written after the reference one, so make their sizes match for a fair test
+  fs.truncateSync(path.join(target, "p.jpg"), fs.statSync(path.join(target, "p.jpg")).size);
+  r = await stats("custom", { exifDates: true });
+  assert.equal(r.s.replace, 0, "GPS not ticked, so a GPS difference is ignored");
+  r = await stats("custom", { gps: true, size: false });
+  assert.equal(r.s.replace, 1);
+  assert.equal(r.actions.find((a) => a.op === "replace").reason, "metadata");
+});
