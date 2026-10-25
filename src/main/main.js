@@ -283,6 +283,7 @@ function start() {
           { type: "separator" },
           nav("EXIF · Show", "exif-show", "CmdOrCtrl+1"),
           nav("EXIF · Modify", "exif-modify", "CmdOrCtrl+2"),
+          nav("EXIF · Batch Modify", "exif-batch", "CmdOrCtrl+8"),
           { type: "separator" },
           nav("Folder · Compare", "folder-compare", "CmdOrCtrl+3"),
           nav("Folder · Modify", "folder-modify", "CmdOrCtrl+4"),

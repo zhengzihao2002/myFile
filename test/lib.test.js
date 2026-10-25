@@ -120,3 +120,19 @@ test("filesAtOnce: the user's number wins, automatic follows the slowest drive",
   assert.equal(filesAtOnce(0, [ssd]), 4, "0 is not a valid choice, so automatic applies");
   assert.equal(filesAtOnce(99, [ssd]), 16);
 });
+
+test("History.append keeps the oldest snapshot of each file and folders last", () => {
+  const { History } = require("../src/main/lib/store");
+  const dir = require("node:fs").mkdtempSync(require("node:path").join(require("node:os").tmpdir(), "hist-"));
+  try {
+    const hist = new History(dir);
+    const e = hist.add({ type: "t", title: "t", undo: { exif: [{ path: "/a", tags: [["X", "1"]] }], times: [{ path: "/d", mtimeMs: 1, dir: true }, { path: "/a", mtimeMs: 10 }] } });
+    hist.append(e.id, { undo: { exif: [{ path: "/a", tags: [["X", "2"], ["Y", null]] }], times: [{ path: "/a", mtimeMs: 20 }, { path: "/b", mtimeMs: 30 }] }, summary: "two saves" });
+    const undo = hist.getUndo(e.id);
+    assert.deepEqual(undo.exif, [{ path: "/a", tags: [["X", "1"], ["Y", null]] }]);
+    assert.deepEqual(undo.times.map((t) => `${t.path}:${t.mtimeMs}`), ["/a:10", "/b:30", "/d:1"]);
+    assert.equal(hist.list()[0].summary, "two saves");
+  } finally {
+    require("node:fs").rmSync(dir, { recursive: true, force: true });
+  }
+});

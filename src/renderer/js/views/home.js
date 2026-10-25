@@ -53,6 +53,7 @@
             ["Show metadata", "eye", "exif-show"],
             ["Copy from a reference file", "wand", "exif-modify", { mode: "copy" }],
             ["Set file dates from EXIF", "calendar", "exif-modify", { mode: "self" }],
+            ["Fix a whole folder, file by file", "layers", "exif-batch", {}],
           ]),
           feature("linear-gradient(135deg,#55a0ff,#3a62f0)", "folder", "Folder", "Compare two folders, restore every date in a copy from its original, and save a folder index as an elegant HTML page.", [
             ["Compare two folders", "compare", "folder-compare"],

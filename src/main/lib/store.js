@@ -86,6 +86,36 @@ class History {
     return entry;
   }
 
+  /**
+   * Adds more undo data to an entry (Batch Modify saves file after file into one entry).
+   * For each file the oldest snapshot wins, so undo goes back to the very first state.
+   */
+  append(id, { undo, summary, details }) {
+    const entry = this.entries.find((e) => e.id === id);
+    if (!entry) return null;
+    if (summary) entry.summary = summary;
+    if (details) entry.details = details;
+    if (undo) {
+      const file = path.join(this.dir, `${id}.json`);
+      const cur = readJson(file, null) || { exif: [], times: [] };
+      const exif = new Map();
+      for (const item of [...(cur.exif || []), ...(undo.exif || [])]) {
+        const tags = exif.get(item.path) || new Map();
+        for (const [tag, value] of item.tags || []) if (!tags.has(tag)) tags.set(tag, value);
+        exif.set(item.path, tags);
+      }
+      const times = new Map();
+      for (const item of [...(cur.times || []), ...(undo.times || [])]) if (!times.has(item.path)) times.set(item.path, item);
+      // Folders last: putting a file's dates back must not leave a folder's date changed.
+      const sorted = [...times.values()].sort((a, b) => Number(Boolean(a.dir)) - Number(Boolean(b.dir)));
+      writeJson(file, { exif: [...exif].map(([p, tags]) => ({ path: p, tags: [...tags] })), times: sorted });
+      entry.undoable = true;
+      entry.reverted = false;
+    }
+    this._save();
+    return entry;
+  }
+
   getUndo(id) {
     return readJson(path.join(this.dir, `${id}.json`), null);
   }

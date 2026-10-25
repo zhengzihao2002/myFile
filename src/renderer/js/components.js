@@ -347,7 +347,7 @@
   // Virtual table: fixed-height rows, renders only what's visible.
   // ---------------------------------------------------------------------------
 
-  MF.VirtualTable = function VirtualTable({ columns, rows = [], rowHeight = 34, maxHeight = 420, empty = "Nothing to show.", onRowClick = null }) {
+  MF.VirtualTable = function VirtualTable({ columns, rows = [], rowHeight = 34, maxHeight = 420, empty = "Nothing to show.", onRowClick = null, fill = false }) {
     let all = rows;
     let shown = rows;
     let filter = null;
@@ -355,7 +355,7 @@
     const head = h("div.vhead", columns.map((c) => h(`div${c.align === "right" ? ".r" : ""}`, { title: c.label }, c.label)));
     const space = h("div.vspace");
     const body = h("div.vbody", { on: { scroll: () => draw() } }, space);
-    const el = h("div.vtable", { "--cols": cols }, head, body);
+    const el = h(`div.vtable${fill ? ".fill" : ""}`, { "--cols": cols }, head, body);
     body.style.maxHeight = `${maxHeight}px`;
 
     const pool = new Map();
@@ -420,6 +420,20 @@
       setFilter(fn) {
         filter = fn;
         reset();
+      },
+      /** Draws the visible rows again, keeping the scroll position (for a changed selection). */
+      redraw() {
+        for (const r of pool.values()) r.remove();
+        pool.clear();
+        draw();
+      },
+      /** Scrolls so the first row matching fn is in view. */
+      scrollTo(fn) {
+        const i = shown.findIndex(fn);
+        if (i < 0) return;
+        const top = i * rowHeight;
+        if (top < body.scrollTop) body.scrollTop = top;
+        else if (top + rowHeight > body.scrollTop + body.clientHeight) body.scrollTop = top + rowHeight - body.clientHeight;
       },
       get count() {
         return shown.length;

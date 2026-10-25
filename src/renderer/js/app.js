@@ -11,6 +11,7 @@
       items: [
         { id: "exif-show", label: "Show", icon: "photo", key: "1" },
         { id: "exif-modify", label: "Modify", icon: "wand", key: "2" },
+        { id: "exif-batch", label: "Batch Modify", icon: "layers", key: "8" },
       ],
     },
     {

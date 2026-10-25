@@ -18,6 +18,7 @@
 - **Show**: drop photos or videos to see them on the left and everything about them on the right: date taken (with time zone), created and modified dates, camera, lens and exposure, GPS location (one click opens Apple Maps), and every metadata tag, grouped and searchable. HEIC, RAW, TIFF and other formats are previewed too.
 - **Modify › Copy from a reference**: drop one reference file and any number of target files or folders. Their date and time (with sub-seconds and time zone), GPS location and, if you like, camera details are rewritten to match the reference. It works across types: a photo can be the reference for a video and the other way round. The file dates Finder shows can follow along.
 - **Modify › Use each file's own date**: sets every file's created and modified dates to the date stored inside it.
+- **Batch Modify**: drop a nested folder and myFile lists the photos and videos whose **EXIF date, created date and modified date disagree** (files where all three agree are skipped). You go through them one after another with the picture or video beside the dates and decide: make all three follow the EXIF, created or modified date, or change just one. Time zones are respected: an EXIF time of 12:00 in Beijing becomes the same *moment* in the file dates, which a Mac in New York shows 12 to 13 hours earlier, and it matches again when the files go back to China. The zone comes from the file (its stored offset), else from its GPS position (approximate), else the default you pick (Beijing and Eastern are one click), else this Mac. You can also write a time zone into a file's EXIF. Changing files inside a folder can move the folder's own modified date, so each folder's date is put back and the originals are kept in History. One History entry covers the whole session and **Undo all** restores EXIF, file dates and folder dates.
 
 You always see a table of *current → new* values before anything is written, and changes can be undone from History. The one exception is the advanced *Copy every metadata tag* option, which says so.
 
@@ -57,7 +58,7 @@ One reference folder, one or more targets. Each target becomes an **exact clone*
 
 ### History
 
-Every change is listed in History. Date and EXIF changes from EXIF › Modify and Folder › Modify have an **Undo** button that puts the old values back.
+Every change is listed in History. Date and EXIF changes from EXIF › Modify, Batch Modify and Folder › Modify have an **Undo** button that puts the old values back.
 
 ## Install
 

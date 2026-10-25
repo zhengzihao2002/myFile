@@ -144,12 +144,7 @@ async function inspect(ctx, { path: file }) {
     orientation: pick(raw, "Orientation"),
   };
 
-  const ext = extOf(file);
-  let preview;
-  if (kind === "image" && BROWSER_IMAGE.has(ext)) preview = { type: "image", url: ctx.fileUrl(file) };
-  else if (kind === "video" && BROWSER_VIDEO.has(ext)) preview = { type: "video", url: ctx.fileUrl(file) };
-  else if (kind === "image" || kind === "video") preview = { type: "pending" };
-  else preview = { type: "none" };
+  const preview = previewFor(ctx, file);
 
   return {
     path: file,
@@ -165,6 +160,16 @@ async function inspect(ctx, { path: file }) {
     tagCount: Object.keys(raw).length,
     preview,
   };
+}
+
+/** How to show a file in the window: { type: "image"|"video"|"pending"|"none", url? }. "pending" means ask exif.preview. */
+function previewFor(ctx, file) {
+  const kind = mediaKind(file) || "other";
+  const ext = extOf(file);
+  if (kind === "image" && BROWSER_IMAGE.has(ext)) return { type: "image", url: ctx.fileUrl(file) };
+  if (kind === "video" && BROWSER_VIDEO.has(ext)) return { type: "video", url: ctx.fileUrl(file) };
+  if (kind === "image" || kind === "video") return { type: "pending" };
+  return { type: "none" };
 }
 
 function cacheName(file, st, suffix) {
@@ -272,4 +277,4 @@ async function pictureData(ctx, { path: file }) {
   return { base64: (await fs.promises.readFile(src)).toString("base64") };
 }
 
-module.exports = { inspect, preview, poster, pictureData, humanizeTag };
+module.exports = { inspect, preview, poster, pictureData, previewFor, humanizeTag };

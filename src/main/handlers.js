@@ -17,6 +17,7 @@ const exifCopy = require("./features/exif-copy");
 const exifDates = require("./features/exif-dates");
 const folderCompare = require("./features/folder-compare");
 const folderModify = require("./features/folder-modify");
+const exifBatch = require("./features/exif-batch");
 const folderIndex = require("./features/folder-index");
 const filesync = require("./features/filesync");
 const history = require("./features/history");
@@ -140,6 +141,12 @@ function createHandlers(ctx) {
     "exif.copyApply": wrap(exifCopy.copyApply),
     "exif.datesPlan": wrap(exifDates.selfDatePlan),
     "exif.datesApply": wrap(exifDates.selfDateApply),
+    "exif.batchZones": wrap(exifBatch.zones),
+    "exif.batchScan": wrap(exifBatch.scan),
+    "exif.batchClassify": wrap(exifBatch.reclassify),
+    "exif.batchOutcome": wrap(exifBatch.outcome),
+    "exif.batchPreview": wrap(exifBatch.preview),
+    "exif.batchApply": wrap(exifBatch.apply),
 
     "folder.compare": wrap(folderCompare.compare),
     "folder.compareExport": wrap(folderCompare.compareExport),

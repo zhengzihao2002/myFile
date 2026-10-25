@@ -171,6 +171,20 @@
       if (m < 60) return `${m}m ${pad(s % 60)}s`;
       return `${Math.floor(m / 60)}h ${pad(m % 60)}m`;
     },
+    /** How far apart two dates are, in words: "2 s", "35 min", "8 h", "12 days", "3 years". */
+    gap(ms) {
+      if (!Number.isFinite(ms)) return "—";
+      const s = Math.round(ms / 1000);
+      if (s < 60) return `${s} s`;
+      const m = Math.round(s / 60);
+      if (m < 60) return `${m} min`;
+      const hrs = Math.round(m / 60);
+      if (hrs < 48) return m % 60 && hrs < 10 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${hrs} h`;
+      const days = Math.round(hrs / 24);
+      if (days < 90) return `${days} days`;
+      if (days < 730) return `${Math.round(days / 30)} months`;
+      return `${Math.round(days / 365)} years`;
+    },
     // "2023:07:14 21:42:08" (EXIF style) -> "2023-07-14 21:42:08"
     exif(text) {
       return String(text || "").replace(/^(\d{4}):(\d{2}):(\d{2})/, "$1-$2-$3");
