@@ -59,20 +59,19 @@ function normalizeOptions(options, settings) {
 
 /** The time zone to read a file's EXIF wall-clock time in. */
 function resolveTz(file, override, opts) {
-  if (override) return { spec: override, kind: "chosen" };
-  if (!file.absolute && file.storedOffsetMin !== null && file.storedOffsetMin !== undefined) return { spec: { offsetMin: file.storedOffsetMin }, kind: "stored" };
-  if (opts.useGps && file.gps) {
-    const zone = tz.zoneFromGps(file.gps.lat, file.gps.lon);
-    if (zone) return { spec: { zone }, kind: "gps" };
-  }
-  // Nothing says where it was taken. This Mac's zone is only used to show something; the
-  // file can't be saved until the user picks its zone.
-  return { spec: { zone: tz.systemZone() }, kind: "unknown" };
+  // The GPS position only ever *suggests* a zone; the user has to click it.
+  const zone = opts.useGps && file.gps ? tz.zoneFromGps(file.gps.lat, file.gps.lon) : null;
+  const suggest = zone ? { zone } : null;
+  if (override) return { spec: override, kind: "chosen", suggest };
+  if (!file.absolute && file.storedOffsetMin !== null && file.storedOffsetMin !== undefined) return { spec: { offsetMin: file.storedOffsetMin }, kind: "stored", suggest };
+  // Nothing in the file says where it was taken. This Mac's zone is only used to show something;
+  // a photo can't be saved until the user picks its zone.
+  return { spec: { zone: tz.systemZone() }, kind: "unknown", suggest };
 }
 
 const TZ_KIND_TEXT = {
   stored: "stored in the file",
-  gps: "guessed from the GPS position",
+  gps: "suggested by the GPS position",
   unknown: "not known: choose it for this file",
   chosen: "chosen by you",
 };
@@ -118,7 +117,7 @@ function computeOutcome(file, decision, opts) {
   const values = [after.exif, after.created, after.modified].filter((v) => v !== null && v !== undefined);
   const spread = values.length ? Math.max(...values) - Math.min(...values) : 0;
   return {
-    tz: { kind: zone.kind, spec: zone.spec, offsetMin, label: tz.describeSpec(zone.spec, ref), why: TZ_KIND_TEXT[zone.kind] },
+    tz: { kind: zone.kind, spec: zone.spec, offsetMin, label: tz.describeSpec(zone.spec, ref), why: TZ_KIND_TEXT[zone.kind], suggest: zone.suggest ? { zone: zone.suggest.zone, label: tz.describeSpec(zone.suggest, ref) } : null },
     before,
     after,
     changes,
@@ -231,6 +230,7 @@ function listRow(raw, c, root) {
     modifiedMs: out.before.modified,
     spreadMs: out.spread,
     needsZone: out.needsZone,
+    suggestZone: out.tz.suggest ? out.tz.suggest.zone : null,
     pairs: c.pairs,
     tzKind: out.tz.kind,
     tzLabel: out.tz.label,
@@ -314,7 +314,18 @@ function textOf(ms, spec) {
 function describeOutcome(raw, out, opts) {
   const sys = { zone: tz.systemZone() };
   const ref = out.before.exif ?? out.before.modified;
+  const dash = (w) => w.replace(/:/, "-").replace(/:/, "-");
+  // What the file says right now, whatever zone gets chosen: the EXIF date as stored, file dates as Finder shows them.
+  const originalText = (key) => {
+    if (key === "exif") {
+      if (!raw.has) return null;
+      if (raw.absolute) return textOf(raw.absMs, { offsetMin: 0 });
+      return `${dash(raw.wall)}${raw.storedOffsetMin !== null && raw.storedOffsetMin !== undefined ? ` ${tz.utcLabel(raw.storedOffsetMin)}` : ""}`;
+    }
+    return textOf(out.before[key], sys);
+  };
   const field = (key) => ({
+    originalText: originalText(key),
     before: out.before[key],
     after: out.after[key],
     changed: out.changes[key],
@@ -330,6 +341,8 @@ function describeOutcome(raw, out, opts) {
     hasExif: raw.has,
     exifSource: raw.source,
     exifAsStored: raw.has ? (raw.absolute ? "one exact moment (UTC), no time zone" : `${raw.wall}${raw.storedOffsetMin !== null ? ` ${require("../lib/dates").offsetString(raw.storedOffsetMin)}` : " (no time zone)"}`) : null,
+    tzOriginal: raw.storedOffsetMin !== null && raw.storedOffsetMin !== undefined && !raw.absolute ? tz.utcLabel(raw.storedOffsetMin) : raw.absolute ? "none (one exact moment, UTC)" : "none stored",
+    suggest: out.tz.suggest,
     tz: { kind: out.tz.kind, label: out.tz.label, why: out.tz.why, offsetMin: out.tz.offsetMin, zone: out.tz.spec.zone || null, writesInFile: raw.movie ? "Keys:CreationDate" : "OffsetTime tags" },
     mac: { label: tz.describeSpec(sys, ref), same: tz.offsetAt(sys, ref) === out.tz.offsetMin },
     gps: raw.gps,

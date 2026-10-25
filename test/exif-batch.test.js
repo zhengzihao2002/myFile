@@ -83,11 +83,14 @@ test("a photo whose time zone nobody knows is never guessed: the user has to cho
   assert.equal(unknown.tz.kind, "unknown");
   assert.equal(unknown.needsZone, true);
   assert.equal(batch.classify(f, OPTS).agree, false, "even if the dates happen to line up on this Mac, it stays in the list");
-  // GPS can tell.
+  // GPS can only suggest: the user still has to click it.
   const gps = { ...f, gps: { lat: 39.9042, lon: 116.4074 } };
-  assert.equal(batch.computeOutcome(gps, {}, OPTS).tz.kind, "gps");
-  assert.equal(batch.classify(gps, OPTS).agree, true, "12:00 in Beijing is 04:00Z");
-  assert.equal(batch.computeOutcome(gps, {}, { ...OPTS, useGps: false }).needsZone, true, "GPS guessing switched off");
+  const suggested = batch.computeOutcome(gps, {}, OPTS);
+  assert.equal(suggested.tz.kind, "unknown");
+  assert.equal(suggested.needsZone, true);
+  assert.equal(suggested.tz.suggest.zone, "Asia/Shanghai");
+  assert.equal(batch.computeOutcome(gps, { tz: "Asia/Shanghai" }, OPTS).agree, true, "12:00 in Beijing is 04:00Z once chosen");
+  assert.equal(batch.computeOutcome(gps, {}, { ...OPTS, useGps: false }).tz.suggest, null, "GPS suggestions switched off");
   // The user chooses a zone for this file and keeps it in the file.
   const out = batch.computeOutcome(f, { tz: "America/New_York", writeTz: true, set: { created: "exif", modified: "exif" } }, OPTS);
   assert.equal(out.tz.kind, "chosen");
@@ -140,19 +143,22 @@ test("scan finds the files whose dates disagree and leaves the rest alone", asyn
   const r = await call("exif.batchScan", { folder: root, options: {} });
   assert.equal(r.counts.total, 4);
   const names = r.rows.map((x) => x.name).sort();
-  // good + gps (zone from GPS) agree; none has no EXIF date and only one file date to compare, so it agrees too.
-  assert.deepEqual(names, ["wrong.jpg"]);
-  assert.equal(r.counts.agree, 3);
-  const row = r.rows[0];
+  // good agrees; none has no EXIF date and only one file date to compare, so it agrees too.
+  // gps.jpg waits for its zone to be clicked.
+  assert.deepEqual(names, ["gps.jpg", "wrong.jpg"]);
+  assert.equal(r.counts.agree, 2);
+  assert.equal(r.rows.find((x) => x.name === "gps.jpg").suggestZone, "Asia/Shanghai");
+  const row = r.rows.find((x) => x.name === "wrong.jpg");
   assert.equal(row.rel, "trip/day1/wrong.jpg");
   assert.equal(row.tzKind, "stored");
   assert.equal(row.pairs.exifModified, true);
 
-  // Without GPS guessing, the GPS photo has no known zone and stays in the list until one is chosen.
+  // Without GPS suggestions it is the same, just without the suggestion.
   const noGps = await call("exif.batchClassify", { scanId: r.scanId, options: { useGps: false } });
   assert.deepEqual(noGps.rows.map((x) => x.name).sort(), ["gps.jpg", "wrong.jpg"]);
   assert.equal(noGps.rows.find((x) => x.name === "gps.jpg").needsZone, true);
   assert.equal(noGps.counts.needsZone, 1);
+  assert.equal(noGps.rows.find((x) => x.name === "gps.jpg").suggestZone, null);
   assert.ok(files.good);
 });
 
@@ -172,7 +178,7 @@ test("saving a decision fixes the dates, keeps folder dates where they were, and
 
   // A rescan shows nothing left to do.
   const again = await call("exif.batchScan", { folder: root, options: {} });
-  assert.equal(again.rows.length, 0);
+  assert.deepEqual(again.rows.map((x) => x.name), ["gps.jpg"], "only the photo waiting for its zone is left");
 
   // Undo puts the old modified date and the folder dates back.
   const entry = ctx.history.list().find((e) => e.id === res.historyId);

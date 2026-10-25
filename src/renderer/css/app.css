@@ -908,3 +908,16 @@ select.select {
 .bt-embed { height: max(580px, calc(100vh - 330px)); display: flex; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .bt-root.single .bt-list { display: none; }
 .bt-root.single .bt-side { width: 420px; }
+.bt-now.old { text-decoration: line-through; color: var(--muted); }
+.bt-chgs { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; }
+.kv .bt-chgs { padding: 12px 14px; }
+.bt-chg { display: flex; flex-wrap: wrap; align-items: baseline; row-gap: 1px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.bt-chg-l { font-weight: 650; flex-basis: 100%; }
+.bt-chg-old { color: var(--muted); text-decoration: line-through; }
+.bt-chg svg.i { width: 12px; height: 12px; vertical-align: -2px; margin: 0 6px; color: var(--accent); }
+.bt-chg-new { color: var(--accent); font-weight: 600; }
+.bt-tzmain .bt-chg-old, .bt-tzmain .bt-chg-new { font-weight: 600; }
+.bt-suggest { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: var(--accent-softer); font-size: 12.5px; }
+.bt-suggest > span { flex: 1; min-width: 0; }
+.bt-suggest svg.i { width: 14px; height: 14px; color: var(--accent); flex: none; }
+.toast .td { white-space: pre-line; }
