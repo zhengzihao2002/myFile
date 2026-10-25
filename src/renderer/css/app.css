@@ -903,3 +903,8 @@ select.select {
   .bt-list { width: 250px; }
   .bt-side { width: 360px; }
 }
+
+/* One file edited inside EXIF > Modify */
+.bt-embed { height: max(580px, calc(100vh - 330px)); display: flex; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+.bt-root.single .bt-list { display: none; }
+.bt-root.single .bt-side { width: 420px; }

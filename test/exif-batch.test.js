@@ -242,3 +242,19 @@ test("a file whose zone is unknown can't be saved until its zone is chosen, one 
   const again = await call("exif.batchScan", { folder: root, options: {} });
   assert.equal(again.rows.length, 0, "the zone is now in the file, so it agrees");
 });
+
+test("a single file can be scanned and edited, even when its dates already agree", async () => {
+  const root = tmpDir("batch-one");
+  const file = makeJpeg(path.join(root, "one.jpg"));
+  await et.write(file, [["DateTimeOriginal", "2020:03:04 05:06:07"], ["OffsetTimeOriginal", "+08:00"]]);
+  const when = tz.wallToInstant(tz.parseExifDate("2020:03:04 05:06:07"), { offsetMin: 480 });
+  setMtime(file, when);
+  const scan = await call("exif.batchScan", { folder: file, options: { single: true } });
+  assert.equal(scan.rows.length, 1, "listed although everything agrees");
+  assert.equal(scan.rows[0].path, file);
+  const folderBefore = fs.statSync(root).mtimeMs;
+  const res = await call("exif.batchApply", { scanId: scan.scanId, items: [{ path: file, decision: { set: {}, tz: "America/New_York", writeTz: true } }] });
+  assert.equal(res.results[0].ok, true);
+  assert.equal(Math.abs(fs.statSync(root).mtimeMs - folderBefore) < 5, true, "parent folder date kept");
+  await assert.rejects(call("exif.batchScan", { folder: file, options: {} }), /not a single file/);
+});

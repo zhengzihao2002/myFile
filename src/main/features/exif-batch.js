@@ -244,7 +244,7 @@ function classifyAll(scan, opts) {
     const c = classify(raw, opts);
     if (c.agree) {
       counts.agree++;
-      continue;
+      if (!scan.single) continue;
     }
     counts.review++;
     if (!raw.has) counts.noExif++;
@@ -263,13 +263,17 @@ async function scan(ctx, { folder, options = {} }, task) {
   } catch {
     throw new UserError("That folder can't be opened.");
   }
-  if (!st.isDirectory()) throw new UserError("Choose a folder, not a single file.");
+  // A single file (EXIF › Modify): the same flow, listed even when its dates already agree.
+  const single = options.single === true && st.isFile();
+  if (!single && !st.isDirectory()) throw new UserError("Choose a folder, not a single file.");
+  const file = single ? folder : null;
+  if (single) folder = path.dirname(folder);
   const settings = ctx.settings.get();
   const volume = await ctx.volumes.info(folder).catch(() => null);
   const opts = normalizeOptions({ ...options, tolMs: Math.max(Number(settings.toleranceMs) || 1000, volume ? volume.granularityMs : 0) }, settings);
 
   const report = throttle((p) => task.progress(p), 150);
-  const { files, skipped } = await expandMediaPaths([folder], {
+  const { files, skipped } = await expandMediaPaths([file || folder], {
     ignore: ignoreFor(opts),
     signal: task.signal,
     onProgress: ({ found, current }) => report({ phase: "find", found, current }),
@@ -279,7 +283,7 @@ async function scan(ctx, { folder, options = {} }, task) {
   for (const raw of await readRaws(ctx, files, { signal: task.signal, onProgress: (p) => task.progress({ phase: "read", done: p.done, total: p.total, current: p.current }) })) raws.set(raw.path, raw);
 
   const id = newId("bat");
-  const scanData = { id, folder, raws, opts, historyId: null, folders: new Map() };
+  const scanData = { id, folder, raws, opts, single, historyId: null, folders: new Map() };
   ctx.remember(id, scanData);
   const { rows, counts } = classifyAll(scanData, opts);
   return { scanId: id, folder, rows, counts, skipped, birthSupported: opts.birthSupported, system: { zone: tz.systemZone(), label: tz.describeSpec({ zone: tz.systemZone() }, Date.now()) }, zones: tz.QUICK_ZONES };
@@ -471,7 +475,7 @@ async function apply(ctx, { scanId, items }, task) {
     if (historyId && ctx.history.append(historyId, { undo, summary, details })) {
       // added to this session's entry
     } else {
-      const entry = ctx.history.add({ type: "exif-batch", title: `Batch fix in ${path.basename(s.folder) || s.folder}`, summary, details, undo });
+      const entry = ctx.history.add({ type: "exif-batch", title: s.single ? `Fixed ${path.basename([...s.raws.keys()][0] || s.folder)}` : `Batch fix in ${path.basename(s.folder) || s.folder}`, summary, details, undo });
       historyId = s.historyId = entry.id;
     }
   }

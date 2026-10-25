@@ -131,3 +131,6 @@ bash scripts/dev.sh --test  # run the test suite
 ## Credits
 
 [ExifTool](https://exiftool.org) by Phil Harvey reads and writes the metadata. [Electron](https://www.electronjs.org) runs the app.
+
+
+**One file at a time:** in EXIF › Modify › *Use each file's own date*, drop a single photo or video to get the same editor as Batch Modify (preview, dates with time zone, which date wins, Undo) for just that file.

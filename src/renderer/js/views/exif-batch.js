@@ -10,12 +10,9 @@
 
   const dirOf = (rel) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "");
 
-  MF.views["exif-batch"] = {
-    crumb: "EXIF",
-    title: "Batch Modify",
-    subtitle: "Find photos and videos whose EXIF, created and modified dates disagree, and settle them one after another.",
-    full: true,
-    mount() {
+  // single = the editor for one file used inside EXIF › Modify (no folder, no list).
+  function build(single) {
+    {
       // ----- state -----
       let zones = [];
       let system = { zone: "", label: "" };
@@ -71,8 +68,9 @@
       const sideScroll = h("div.scroll");
       const sideFoot = h("div.bt-sidefoot");
       const side = h("div.panel-side.bt-side", sideScroll, sideFoot);
-      const review = h("div.bt-review.hidden", listCol, stage, side);
-      const root = h("div.bt-root", setup, review);
+      const review = h(`div.bt-review${single ? "" : ".hidden"}`, listCol, stage, side);
+      const root = h(`div.bt-root${single ? ".single" : ""}`, single ? null : setup, review);
+      let banner = null; // single file: the note with Undo after a save
 
       // ----- helpers -----
       // A zone chooser with no "automatic" entry: the file's own zone is pre-selected when it has one,
@@ -142,7 +140,7 @@
         current = null;
         outcome = null;
         for (const r of res.rows) rows.set(r.path, r);
-        reviewGps = { checked: setupGps.checked };
+        reviewGps = single && reviewGps ? reviewGps : { checked: setupGps.checked };
         tab = "todo";
         setup.classList.add("hidden");
         review.classList.remove("hidden");
@@ -441,10 +439,10 @@
       function renderPanel() {
         const o = outcome;
         const d = decisionFor(current);
-        replace(sideScroll, dateCard(o), tzCard(o, d), choiceCard(o, d));
+        replace(sideScroll, banner, dateCard(o), tzCard(o, d), single ? h("div.card.card-pad", { style: { paddingTop: "8px", paddingBottom: "8px" } }, zoneLine) : null, choiceCard(o, d));
         const valid = d.choice !== "" && !(d.choice === "one" && d.oneTarget === d.oneSrc) && !o.needsZone;
-        const saveBtn = MF.Button("Save & next", { kind: "primary", size: "lg", iconName: "check", disabled: !valid || !o.anything, onClick: () => save(saveBtn) });
-        const skipBtn = MF.Button("Skip", { kind: "ghost", onClick: skip });
+        const saveBtn = MF.Button(single ? "Save" : "Save & next", { kind: "primary", size: "lg", iconName: "check", disabled: !valid || !o.anything, onClick: () => save(saveBtn) });
+        const skipBtn = single ? null : MF.Button("Skip", { kind: "ghost", onClick: skip });
         replace(sideFoot, skipBtn, h("span.spacer"), o.needsZone ? h("span.muted.small", "Choose the time zone first") : !valid ? h("span.muted.small", "Choose what should win") : !o.anything ? h("span.muted.small", "Nothing would change") : null, saveBtn);
       }
 
@@ -467,6 +465,13 @@
             return;
           }
           historyId = res.historyId || historyId;
+          if (single) {
+            const note = r.agree === false ? "Saved, but the dates still differ." : "Saved. Folder dates were kept.";
+            await openFile(row.path);
+            banner = MF.undoCallout("green", h("span", h("b", note)), res.historyId, () => openFile(row.path));
+            renderPanel();
+            return;
+          }
           savedCount++;
           status.set(row.path, r.agree === false ? "partial" : "saved");
           refreshCounts();
@@ -520,6 +525,19 @@
         }
       }
 
+      // Single file: read it (even if its dates already agree) and show the editor.
+      async function openFile(file) {
+        banner = null;
+        try {
+          const res = await api.run("exif.batchScan", { folder: file, options: { single: true, useGps: true } });
+          zones = res.zones;
+          system = res.system;
+          startReview(res);
+        } catch (err) {
+          if (!err.cancelled) MF.fail(err);
+        }
+      }
+
       function reset() {
         scan = null;
         rows.clear();
@@ -532,6 +550,11 @@
         MF.refreshHeader();
       }
 
+      if (single) {
+        prevBtn.classList.add("hidden");
+        nextBtn.classList.add("hidden");
+        return { el: root, openFile };
+      }
       return {
         el: root,
         async onShow() {
@@ -544,6 +567,15 @@
           }
         },
       };
-    },
+    }
+  }
+
+  MF.views["exif-batch"] = {
+    crumb: "EXIF",
+    title: "Batch Modify",
+    subtitle: "Find photos and videos whose EXIF, created and modified dates disagree, and settle them one after another.",
+    full: true,
+    mount: () => build(false),
   };
+  MF.batchEditor = () => build(true);
 })();

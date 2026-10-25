@@ -338,7 +338,7 @@
     let plan = null;
     let job = null;
 
-    const drop = MF.DropZone({ label: "Photos and videos", hint: "files or folders", accept: "media-or-folder", multiple: true, title: "Drop photos, videos or folders", subtitle: "Each file's created and modified dates are set to the date inside it", moreTitle: "Add more", glyph: "calendar", onChange: () => { replace(result); refresh(); } });
+    const drop = MF.DropZone({ label: "Photos and videos", hint: "files or folders", accept: "media-or-folder", multiple: true, title: "Drop photos, videos or folders", subtitle: "Each file's created and modified dates are set to the date inside it. Drop one file to fine-tune it.", moreTitle: "Add more", glyph: "calendar", onChange: () => { replace(result); refresh(); syncOne(); } });
     const created = MF.Option({ title: "Set the created date", desc: "What Finder shows as “Created”.", checked: true, onChange: (v) => { options.created = v; refresh(); } });
     const modified = MF.Option({ title: "Set the modified date", desc: "What Finder shows as “Modified”.", checked: true, onChange: (v) => { options.modified = v; refresh(); } });
     const tabs = MF.Tabs({
@@ -366,19 +366,33 @@
     const result = h("div");
     const summary = h("div.summary");
     const applyBtn = MF.Button("Apply", { kind: "primary", size: "lg", iconName: "check", disabled: true, onClick: apply });
-    const el = h(
+    // Exactly one photo or video: the full one-file editor (time zone, which date wins, preview) instead.
+    const oneBox = h("div.hidden");
+    const many = h(
       "div.stack",
-      drop.el,
       h("div.card.card-pad", { style: { paddingTop: "6px", paddingBottom: "6px" } }, created.el, modified.el),
       h("div.card", head, tabs.el, table.el),
       result,
       h("div.actionbar", summary, h("span.spacer"), applyBtn),
     );
+    const el = h("div.stack", drop.el, oneBox, many);
+    let oneFor = null;
+    function syncOne() {
+      const only = drop.infos.length === 1 && drop.infos[0].isFile ? drop.infos[0].path : null;
+      oneBox.classList.toggle("hidden", !only);
+      many.classList.toggle("hidden", Boolean(only));
+      if (only === oneFor) return;
+      oneFor = only;
+      if (!only) return replace(oneBox);
+      const editor = MF.batchEditor();
+      replace(oneBox, h("div.bt-embed", editor.el));
+      editor.openFile(only);
+    }
 
     const refresh = MF.debounce(async () => {
       if (job) job.cancel();
       const paths = drop.paths;
-      if (!paths.length) {
+      if (!paths.length || (drop.infos.length === 1 && drop.infos[0].isFile)) {
         plan = null;
         table.setRows([]);
         update();
