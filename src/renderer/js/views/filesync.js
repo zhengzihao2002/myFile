@@ -250,10 +250,12 @@
       // ----- Plan ----------------------------------------------------------
       async function analyze() {
         const rate = MF.rateTracker();
+        const scanRate = MF.rateTracker("items");
+        const fileRate = MF.rateTracker("items", "files");
         try {
           state.plan = await MF.busy("Analyzing…", "sync.analyze", payload(), (p) => {
-            if (p.phase === "scan-reference") return { label: "Reading the reference…", left: `${fmt.num(p.scanned)} items` };
-            if (p.phase === "scan-target") return { label: `Reading ${p.target}…`, left: `${fmt.num(p.scanned)} items` };
+            if (p.phase === "scan-reference") return { label: "Reading the reference…", left: `${fmt.num(p.scanned)} items`, right: scanRate(p.scanned) };
+            if (p.phase === "scan-target") return { label: `Reading ${p.target}…`, left: `${fmt.num(p.scanned)} items`, right: scanRate(p.scanned) };
             if (p.phase === "compare") {
               const n = p.active ? p.active.length : 0;
               return {
@@ -261,12 +263,12 @@
                 ratio: p.totalBytes ? p.doneBytes / p.totalBytes : null,
                 left: `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)} read`,
                 sub: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files compared${n > 1 ? ` · ${n} at once` : ""}`,
-                right: rate(p.doneBytes, p.totalBytes) || (p.totalBytes > 20 * 1024 ** 3 ? `${fmt.size(p.totalBytes)} to read, this takes a while` : ""),
+                right: rate(p.doneBytes, p.totalBytes),
                 current: p.current,
                 active: p.active,
               };
             }
-            if (p.phase === "metadata") return { label: "Comparing photo and video info…", ratio: p.totalFiles ? p.doneFiles / p.totalFiles : null, left: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, current: p.current };
+            if (p.phase === "metadata") return { label: "Comparing photo and video info…", ratio: p.totalFiles ? p.doneFiles / p.totalFiles : null, left: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, right: fileRate(p.doneFiles, p.totalFiles), current: p.current };
             return {};
           });
           renderPlan();

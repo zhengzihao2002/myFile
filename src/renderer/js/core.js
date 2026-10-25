@@ -316,24 +316,28 @@
    * { label, ratio (0..1 or null), left, right, sub, current, active } for display.
    */
   /**
-   * Speed and time-left text for long reads and copies. The speed is measured over the
-   * last ~10 seconds, so a fast start (drive cache) doesn't make the estimate too hopeful.
-   * Call it with every progress event: rate(doneBytes, totalBytes) -> "22 MB/s · 4 min left" or "".
+   * Speed and time-left text for long reads, copies and folder scans. The speed is measured over
+   * the last ~10 seconds, so a fast start (drive cache) doesn't make the estimate too hopeful.
+   * Call it with every progress event: rate(done, total) -> "22 MB/s · 4 min left".
+   * unit "bytes" shows MB/s, "items" shows items/s (and the time so far when the total is unknown).
+   * Until there is enough to measure it says "measuring speed…" so the line is never just empty.
    */
-  MF.rateTracker = function rateTracker() {
+  MF.rateTracker = function rateTracker(unit = "bytes", noun = "items") {
     const samples = [];
+    const started = Date.now();
     return (done, total) => {
       const now = Date.now();
-      if (!(done > 0)) return "";
+      if (!(done > 0)) return "measuring speed…";
       samples.push({ t: now, b: done });
       while (samples.length > 2 && now - samples[0].t > 10000) samples.shift();
       const first = samples[0];
       const secs = (now - first.t) / 1000;
-      if (secs < 2) return "";
+      if (secs < 1) return "measuring speed…";
       const rate = (done - first.b) / secs;
-      if (!(rate > 0)) return "";
+      const speed = unit === "bytes" ? `${fmt.size(rate)}/s` : `${fmt.num(Math.round(rate))} ${noun}/s`;
+      if (!(rate > 0)) return unit === "bytes" ? "0 B/s · waiting for the drive…" : `waiting… ${fmt.duration(now - started)} so far`;
       const eta = total > done ? ((total - done) / rate) * 1000 : null;
-      return `${fmt.size(rate)}/s${eta !== null ? ` · ${fmt.duration(eta)} left` : ""}`;
+      return `${speed}${eta !== null ? ` · ${fmt.duration(eta)} left` : ` · ${fmt.duration(now - started)} so far`}`;
     };
   };
 

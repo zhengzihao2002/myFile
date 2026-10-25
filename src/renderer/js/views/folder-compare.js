@@ -84,13 +84,15 @@
       async function run() {
         try {
           const rate = MF.rateTracker();
+          const scanRate = MF.rateTracker("items");
+          const fileRate = MF.rateTracker("items", "files");
           result = await MF.busy("Comparing folders…", "folder.compare", { a: dropA.paths[0], b: dropB.paths[0], options: { content, includeAll } }, (p) => {
-            if (p.phase === "scan") return { label: "Reading both folders…", left: `A: ${fmt.num(p.scannedA)} items`, right: `B: ${fmt.num(p.scannedB)} items` };
-            if (p.phase === "metadata") return { label: "Comparing photo and video info…", ratio: p.totalFiles ? p.doneFiles / p.totalFiles : null, left: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, current: p.current };
-            if (p.phase === "explain") return { label: "Working out what differs…", ratio: p.totalFiles ? p.doneFiles / p.totalFiles : null, left: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, current: p.current };
+            if (p.phase === "scan") return { label: "Reading both folders…", left: `A: ${fmt.num(p.scannedA)} items · B: ${fmt.num(p.scannedB)} items`, right: scanRate(p.scannedA + p.scannedB) };
+            if (p.phase === "metadata") return { label: "Comparing photo and video info…", ratio: p.totalFiles ? p.doneFiles / p.totalFiles : null, left: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, right: fileRate(p.doneFiles, p.totalFiles), current: p.current };
+            if (p.phase === "explain") return { label: "Working out what differs…", ratio: p.totalFiles ? p.doneFiles / p.totalFiles : null, left: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files`, right: fileRate(p.doneFiles, p.totalFiles), current: p.current };
             if (p.phase === "content") {
               const n = p.active ? p.active.length : 0;
-              return { label: n > 1 ? `Comparing ${n} files at once…` : "Comparing file contents…", ratio: p.totalBytes ? p.doneBytes / p.totalBytes : null, left: `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)} read`, right: rate(p.doneBytes, p.totalBytes) || (p.totalBytes > 20 * 1024 ** 3 ? `${fmt.size(p.totalBytes)} to read, this takes a while` : ""), sub: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files compared`, current: p.current, active: p.active };
+              return { label: n > 1 ? `Comparing ${n} files at once…` : "Comparing file contents…", ratio: p.totalBytes ? p.doneBytes / p.totalBytes : null, left: `${fmt.size(p.doneBytes)} of ${fmt.size(p.totalBytes)} read`, right: rate(p.doneBytes, p.totalBytes), sub: `${fmt.num(p.doneFiles)} of ${fmt.num(p.totalFiles)} files compared`, current: p.current, active: p.active };
             }
             return {};
           });
