@@ -272,11 +272,11 @@ async function scan(ctx, { folder, options = {} }, task) {
   const { files, skipped } = await expandMediaPaths([folder], {
     ignore: ignoreFor(opts),
     signal: task.signal,
-    onProgress: ({ found }) => report({ phase: "find", found }),
+    onProgress: ({ found, current }) => report({ phase: "find", found, current }),
   });
   report.flush();
   const raws = new Map();
-  for (const raw of await readRaws(ctx, files, { signal: task.signal, onProgress: (p) => task.progress({ phase: "read", done: p.done, total: p.total }) })) raws.set(raw.path, raw);
+  for (const raw of await readRaws(ctx, files, { signal: task.signal, onProgress: (p) => task.progress({ phase: "read", done: p.done, total: p.total, current: p.current }) })) raws.set(raw.path, raw);
 
   const id = newId("bat");
   const scanData = { id, folder, raws, opts, historyId: null, folders: new Map() };

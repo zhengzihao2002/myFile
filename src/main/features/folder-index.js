@@ -48,7 +48,7 @@ async function readSnapshots(ctx, files, { signal, onProgress } = {}) {
       const snap = dateSnapshot(bySource.get(f.path.normalize("NFC")));
       if (snap) out.set(f.rel, snap);
     }
-    if (onProgress) onProgress({ done: Math.min(i + 100, files.length), total: files.length });
+    if (onProgress) onProgress({ done: Math.min(i + 100, files.length), total: files.length, current: chunk[chunk.length - 1].rel });
   }
   return out;
 }

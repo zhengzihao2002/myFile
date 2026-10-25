@@ -21,7 +21,7 @@ async function selfDatePlan(ctx, { paths, options = {} }, task) {
   const { files, skipped } = await expandMediaPaths(paths || [], {
     ignore: ignoreFor(opts),
     signal: task.signal,
-    onProgress: ({ found }) => task.progress({ phase: "find", found }),
+    onProgress: ({ found, current }) => task.progress({ phase: "find", found, current }),
   });
 
   const rows = [];
@@ -55,7 +55,7 @@ async function selfDatePlan(ctx, { paths, options = {} }, task) {
       }
       rows.push(row);
     }
-    task.progress({ phase: "read", done: Math.min(i + 100, files.length), total: files.length });
+    task.progress({ phase: "read", done: Math.min(i + 100, files.length), total: files.length, current: path.basename(chunk[chunk.length - 1].path || chunk[chunk.length - 1]) });
   }
 
   const counts = { change: 0, same: 0, nodate: 0 };

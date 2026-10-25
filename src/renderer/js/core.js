@@ -373,9 +373,23 @@
       h("div.busy-card", h("div.title", h("div.spinner"), label), h("div.bar-row", progress, pct), h("div.detail", left, right), note, current, h("div.foot", stopBtn, cancelBtn)),
     );
     document.body.appendChild(overlay);
+    // Every progress pop-up shows a speed and the file(s) being worked on: screens that don't supply
+    // their own get a generic items-per-second line and the backend's current/active names.
+    const autoRate = MF.rateTracker("items", "items");
+    let lastCount = 0;
     const job = start(name, payload, {
       onProgress: (p) => {
         const d = describe ? describe(p) || {} : {};
+        if (d.right === undefined) {
+          const count = p.done ?? p.scanned ?? p.found ?? p.count ?? 0;
+          if (count < lastCount) lastCount = 0;
+          d.right = autoRate(count, p.total);
+          lastCount = count;
+        }
+        if (d.current === undefined && d.active === undefined) {
+          d.active = p.active;
+          d.current = p.current;
+        }
         if (d.label) label.textContent = stopping ? softStop.doing : d.label;
         if (typeof d.ratio === "number" && Number.isFinite(d.ratio)) {
           progress.classList.remove("indeterminate");

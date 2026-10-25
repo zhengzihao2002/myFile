@@ -81,8 +81,9 @@
         const sysZone = system.zone;
         const options = () => [placeholder ? h("option", { value: "", disabled: true }, placeholder) : null, h("option", { value: sysZone }, `This Mac's time zone (${system.label})`), zones.map((z) => h("option", { value: z.id }, z.label)), h("option", { value: "other" }, "Other UTC offset…")];
         const sel = h("select.select", { on: { change: () => { custom.classList.toggle("hidden", sel.value !== "other"); if (sel.value !== "other") fire(); else custom.focus(); } } });
-        const custom = h("input.select.hidden", { placeholder: "+08:00", style: { width: "84px", paddingRight: "10px", marginLeft: "6px" }, on: { input: () => fire() } });
-        const el = h("div.row", { style: { gap: "0" } }, sel, custom);
+        const custom = h("input.select.hidden", { placeholder: "UTC offset, e.g. +08:00", style: { width: "100%", paddingRight: "10px", marginTop: "6px" }, on: { input: () => fire() } });
+        sel.style.width = "100%";
+        const el = h("div.bt-zonepick", sel, custom);
         const known = (v) => v === sysZone || zones.some((z) => z.id === v);
         function fire() {
           onChange(sel.value === "other" ? custom.value.trim() : sel.value);
@@ -396,8 +397,8 @@
         const [badgeKind, badgeText] = TZ_KIND[o.tz.kind] || ["", o.tz.kind];
         const current = d.tz || (o.needsZone ? "" : o.tz.zone || offsetValue(o.tz.offsetMin));
         const picker = zonePicker({ placeholder: o.needsZone ? "Choose a zone…" : null, value: current, onChange: (v) => v && v !== current && setDecision({ tz: v, writeTz: true }) });
-        const chip = (label, id) => h(`button.bt-chip${d.tz === id ? ".on" : ""}`, { type: "button", on: { click: () => setDecision({ tz: id, writeTz: true }) } }, label);
-        const warn = o.needsZone ? MF.Callout("amber", h("b", "Choose this file's time zone. "), "It doesn't say where it was taken and has no GPS, so nothing is guessed. Until you choose, it can't be saved.") : o.tz.kind === "gps" ? h("div.muted.small", "Worked out from where the photo was taken. Near a border it can be the neighbouring zone.") : null;
+        const chip = (label, id) => h(`button.bt-chip${current === id ? ".on" : ""}`, { type: "button", on: { click: () => setDecision({ tz: id, writeTz: true }) } }, label);
+        const warn = o.needsZone ? MF.Callout("amber", h("b", "Choose this file's time zone. "), "No time zone is stored and there is no GPS, so nothing is guessed.") : o.tz.kind === "gps" ? h("div.muted.small", "Worked out from where the photo was taken. Near a border it can be the neighbouring zone.") : null;
         return h(
           "div.kv",
           h("div.kvh", icon("clock"), "Time zone", h("div.right", h(`span.badge.${badgeKind}`, badgeText))),
@@ -406,7 +407,8 @@
             h("div.bt-tzmain", o.needsZone ? "Not chosen yet" : o.tz.label),
             o.movie ? h("div.muted.small", "A video stores one exact moment, so the zone only decides how it is written out and shown here.") : null,
             warn,
-            h("div.row", { style: { gap: "6px", flexWrap: "wrap", marginTop: "8px" } }, chip("Beijing", "Asia/Shanghai"), chip("Eastern", "America/New_York"), picker.el),
+            h("div.bt-chips", chip("Beijing", "Asia/Shanghai"), chip("Eastern", "America/New_York"), chip("This Mac", system.zone)),
+            picker.el,
             h("div", { style: { marginTop: "8px", borderTop: "1px solid var(--line)" } }, MF.Option({ title: "Save this time zone in the file", desc: (o.movie ? "Writes Keys:CreationDate with the offset." : "Writes the OffsetTime tags in its EXIF.") + " Without it, this file asks for its zone again next time.", checked: o.writeTz || d.writeTz, onChange: (v) => setDecision({ writeTz: v }) }).el),
           ),
         );

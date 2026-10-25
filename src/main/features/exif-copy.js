@@ -67,7 +67,7 @@ async function readInfos(ctx, files, { signal, onProgress } = {}) {
       delete row.SourceFile;
       out.set(file, interpret(file, row));
     }
-    if (onProgress) onProgress({ done: Math.min(i + 100, files.length), total: files.length, phase: "read" });
+    if (onProgress) onProgress({ done: Math.min(i + 100, files.length), total: files.length, phase: "read", current: path.basename(chunk[chunk.length - 1]) });
   }
   return out;
 }

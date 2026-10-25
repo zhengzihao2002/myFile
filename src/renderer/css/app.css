@@ -886,7 +886,9 @@ select.select {
 .bt-listhead .tab { padding: 0 8px; font-size: 12px; }
 .bt-tz { padding: 12px 14px; }
 .bt-tzmain { font-weight: 650; font-size: 13.5px; margin-bottom: 2px; }
-.bt-chip { height: 28px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 12.5px; font-weight: 550; cursor: pointer; }
+.bt-chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+.bt-zonepick { margin-top: 8px; }
+.bt-chip { height: 30px; padding: 0 8px; white-space: nowrap; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 12.5px; font-weight: 550; cursor: pointer; }
 .bt-chip:hover { background: var(--hover); }
 .bt-chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .bt-choices { display: flex; flex-direction: column; gap: 8px; padding: 12px; }

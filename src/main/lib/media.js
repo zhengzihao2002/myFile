@@ -59,7 +59,7 @@ async function expandMediaPaths(paths, { ignore = () => false, recursive = true,
     if (seen.has(key)) return;
     seen.add(key);
     files.push(p);
-    if (onProgress && files.length % 200 === 0) onProgress({ found: files.length });
+    if (onProgress && files.length % 200 === 0) onProgress({ found: files.length, current: require("node:path").basename(p) });
   };
 
   const walk = async (dir) => {
