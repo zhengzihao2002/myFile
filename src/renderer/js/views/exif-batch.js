@@ -75,34 +75,25 @@
       const root = h("div.bt-root", setup, review);
 
       // ----- helpers -----
-      function zonePicker({ autoLabel, onChange, value = "" }) {
-        const quick = () => zones.map((z) => h("option", { value: z.id }, z.label));
-        const sel = h("select.select", { on: { change: () => { custom.classList.toggle("hidden", sel.value !== "other"); fire(); } } });
+      // A zone chooser with no "automatic" entry: the file's own zone is pre-selected when it has one,
+      // otherwise it shows "Choose a zone…" until the user picks.
+      function zonePicker({ placeholder, value = "", onChange }) {
+        const sysZone = system.zone;
+        const options = () => [placeholder ? h("option", { value: "", disabled: true }, placeholder) : null, h("option", { value: sysZone }, `This Mac's time zone (${system.label})`), zones.map((z) => h("option", { value: z.id }, z.label)), h("option", { value: "other" }, "Other UTC offset…")];
+        const sel = h("select.select", { on: { change: () => { custom.classList.toggle("hidden", sel.value !== "other"); if (sel.value !== "other") fire(); else custom.focus(); } } });
         const custom = h("input.select.hidden", { placeholder: "+08:00", style: { width: "84px", paddingRight: "10px", marginLeft: "6px" }, on: { input: () => fire() } });
         const el = h("div.row", { style: { gap: "0" } }, sel, custom);
-        let cur = value;
+        const known = (v) => v === sysZone || zones.some((z) => z.id === v);
         function fire() {
-          cur = sel.value === "other" ? custom.value.trim() : sel.value;
-          onChange(cur);
+          onChange(sel.value === "other" ? custom.value.trim() : sel.value);
         }
-        function fill() {
-          replace(sel, h("option", { value: "" }, autoLabel()), quick(), h("option", { value: "other" }, "Other UTC offset…"));
-          sel.value = zones.some((z) => z.id === cur) || cur === "" ? cur : "other";
-          custom.classList.toggle("hidden", sel.value !== "other");
-          if (sel.value === "other") custom.value = cur;
+        replace(sel, options());
+        sel.value = value === "" ? "" : known(value) ? value : "other";
+        if (sel.value === "other") {
+          custom.classList.remove("hidden");
+          custom.value = value;
         }
-        fill();
-        return {
-          el,
-          fill,
-          get value() {
-            return cur;
-          },
-          set(v) {
-            cur = v || "";
-            fill();
-          },
-        };
+        return { el };
       }
 
       function defaultDecision(row) {
@@ -368,6 +359,8 @@
         return h("span", t, z ? h("span.tz", ` ${z}`) : null);
       };
 
+      const offsetValue = (min) => `${min < 0 ? "-" : "+"}${String(Math.floor(Math.abs(min) / 60)).padStart(2, "0")}:${String(Math.abs(min) % 60).padStart(2, "0")}`;
+
       function dateCard(o) {
         if (o.needsZone) {
           // Without a zone the EXIF time can't be turned into a moment, so nothing is compared or promised yet.
@@ -401,7 +394,8 @@
 
       function tzCard(o, d) {
         const [badgeKind, badgeText] = TZ_KIND[o.tz.kind] || ["", o.tz.kind];
-        const picker = zonePicker({ autoLabel: () => (o.needsZone ? "Choose a zone…" : "Automatic (as above)"), value: d.tz, onChange: (v) => setDecision({ tz: v, writeTz: v ? true : d.writeTz }) });
+        const current = d.tz || (o.needsZone ? "" : o.tz.zone || offsetValue(o.tz.offsetMin));
+        const picker = zonePicker({ placeholder: o.needsZone ? "Choose a zone…" : null, value: current, onChange: (v) => v && v !== current && setDecision({ tz: v, writeTz: true }) });
         const chip = (label, id) => h(`button.bt-chip${d.tz === id ? ".on" : ""}`, { type: "button", on: { click: () => setDecision({ tz: id, writeTz: true }) } }, label);
         const warn = o.needsZone ? MF.Callout("amber", h("b", "Choose this file's time zone. "), "It doesn't say where it was taken and has no GPS, so nothing is guessed. Until you choose, it can't be saved.") : o.tz.kind === "gps" ? h("div.muted.small", "Worked out from where the photo was taken. Near a border it can be the neighbouring zone.") : null;
         return h(
