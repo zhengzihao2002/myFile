@@ -13,7 +13,7 @@ test.after(() => et.close());
 
 const BEIJING = { zone: "Asia/Shanghai" };
 const NEW_YORK = { zone: "America/New_York" };
-const OPTS = { useGps: true, defaultSpec: null, tolMs: 1000, birthSupported: true };
+const OPTS = { useGps: true, tolMs: 1000, birthSupported: true };
 
 test("time zone maths: Beijing wall clock to an instant, and the New York equivalent", () => {
   const may = tz.parseExifDate("2023:05:01 12:00:00");
@@ -77,24 +77,25 @@ test("a decision changes only what was asked, and says whether everything then a
   assert.equal(out.anything, false);
 });
 
-test("a time zone chosen by the user re-reads the wall clock, and can be saved into the file", () => {
+test("a photo whose time zone nobody knows is never guessed: the user has to choose it", () => {
   const f = file({ storedOffsetMin: null, createdMs: at("2023-05-01T04:00:00Z"), modifiedMs: at("2023-05-01T04:00:00Z") });
-  // Nothing known: this Mac's zone is assumed, so the dates only agree if the Mac is on UTC.
-  assert.equal(batch.computeOutcome(f, {}, OPTS).tz.kind, "system");
-  // A default for files with no zone.
-  const dflt = { ...OPTS, defaultSpec: BEIJING };
-  assert.equal(batch.classify(f, dflt).agree, true);
-  assert.equal(batch.computeOutcome(f, {}, dflt).tz.kind, "default");
-  // GPS beats the default.
-  const gps = { ...f, gps: { lat: 40.7128, lon: -74.006 } };
-  assert.equal(batch.computeOutcome(gps, {}, dflt).tz.kind, "gps");
-  assert.equal(batch.classify(gps, dflt).agree, false, "New York clocks: 12:00 there is 16:00Z");
-  assert.equal(batch.computeOutcome(gps, {}, { ...dflt, useGps: false }).tz.kind, "default");
-  // The user picks Eastern for it and asks to keep that in the file.
+  const unknown = batch.computeOutcome(f, {}, OPTS);
+  assert.equal(unknown.tz.kind, "unknown");
+  assert.equal(unknown.needsZone, true);
+  assert.equal(batch.classify(f, OPTS).agree, false, "even if the dates happen to line up on this Mac, it stays in the list");
+  // GPS can tell.
+  const gps = { ...f, gps: { lat: 39.9042, lon: 116.4074 } };
+  assert.equal(batch.computeOutcome(gps, {}, OPTS).tz.kind, "gps");
+  assert.equal(batch.classify(gps, OPTS).agree, true, "12:00 in Beijing is 04:00Z");
+  assert.equal(batch.computeOutcome(gps, {}, { ...OPTS, useGps: false }).needsZone, true, "GPS guessing switched off");
+  // The user chooses a zone for this file and keeps it in the file.
   const out = batch.computeOutcome(f, { tz: "America/New_York", writeTz: true, set: { created: "exif", modified: "exif" } }, OPTS);
   assert.equal(out.tz.kind, "chosen");
+  assert.equal(out.needsZone, false);
   assert.equal(out.after.modified, at("2023-05-01T16:00:00Z"));
   assert.deepEqual(batch.exifWrites(f, out), [["OffsetTimeOriginal", "-04:00"], ["OffsetTimeDigitized", "-04:00"], ["OffsetTime", "-04:00"]]);
+  // A file without an EXIF date has no wall clock to read, so it needs no zone.
+  assert.equal(batch.computeOutcome(file({ has: false, wall: null, storedOffsetMin: null }), {}, OPTS).needsZone, false);
 });
 
 test("videos: QuickTime dates are exact moments and need no zone", () => {
@@ -147,11 +148,11 @@ test("scan finds the files whose dates disagree and leaves the rest alone", asyn
   assert.equal(row.tzKind, "stored");
   assert.equal(row.pairs.exifModified, true);
 
-  // Without GPS guessing the GPS photo needs a zone: this Mac's zone is assumed and it only agrees on a UTC-8 Mac.
-  const noGps = await call("exif.batchClassify", { scanId: r.scanId, options: { useGps: false, defaultZone: "Asia/Shanghai" } });
-  assert.deepEqual(noGps.rows.map((x) => x.name).sort(), ["wrong.jpg"], "default zone Beijing makes the GPS-less reading agree too");
-  const sys = await call("exif.batchClassify", { scanId: r.scanId, options: { useGps: false } });
-  assert.ok(sys.rows.some((x) => x.name === "gps.jpg") || tz.systemZone() === "Asia/Shanghai" || tz.zoneOffsetAt(tz.systemZone(), Date.parse("2023-05-01T04:00:00Z")) === 480);
+  // Without GPS guessing, the GPS photo has no known zone and stays in the list until one is chosen.
+  const noGps = await call("exif.batchClassify", { scanId: r.scanId, options: { useGps: false } });
+  assert.deepEqual(noGps.rows.map((x) => x.name).sort(), ["gps.jpg", "wrong.jpg"]);
+  assert.equal(noGps.rows.find((x) => x.name === "gps.jpg").needsZone, true);
+  assert.equal(noGps.counts.needsZone, 1);
   assert.ok(files.good);
 });
 
@@ -202,7 +203,7 @@ test("changing the EXIF date from the modified date writes it in the file's own 
 
 test("a file with no time zone can be given one, and later saves join the same History entry", async () => {
   const { root, sub, files } = await makeTree();
-  const scan = await call("exif.batchScan", { folder: root, options: { useGps: false, defaultZone: "Asia/Shanghai" } });
+  const scan = await call("exif.batchScan", { folder: root, options: { useGps: false } });
   const gpsFile = files.gps;
   const none = files.none;
   const first = await call("exif.batchApply", { scanId: scan.scanId, items: [{ path: gpsFile, decision: { tz: "America/New_York", writeTz: true } }] });
@@ -224,4 +225,20 @@ test("a file with no time zone can be given one, and later saves join the same H
   const noExif = await readTags(et, none, ["DateTimeOriginal"]);
   assert.ok(noExif.DateTimeOriginal === undefined || noExif.DateTimeOriginal === "");
   assert.equal(fs.statSync(sub).mtimeMs, Date.parse("2020-02-02T02:02:02Z"), "folder date survives the undo too");
+});
+
+test("a file whose zone is unknown can't be saved until its zone is chosen, one file at a time", async () => {
+  const root = tmpDir("unzoned");
+  const f = await photo(root, "a.jpg", [["DateTimeOriginal", "2023:05:01 12:00:00"]], "2023-05-01T04:00:00Z");
+  const scan = await call("exif.batchScan", { folder: root, options: {} });
+  assert.equal(scan.rows.length, 1);
+  assert.equal(scan.rows[0].needsZone, true);
+  const refused = await call("exif.batchApply", { scanId: scan.scanId, items: [{ path: f, decision: { set: { modified: "exif" } } }] });
+  assert.equal(refused.ok, 0);
+  assert.match(refused.results[0].error, /Choose this file's time zone/);
+  const saved = await call("exif.batchApply", { scanId: scan.scanId, items: [{ path: f, decision: { tz: "Asia/Shanghai", writeTz: true, set: { modified: "exif" } } }] });
+  assert.equal(saved.ok, 1, JSON.stringify(saved.results));
+  assert.equal(fs.statSync(f).mtimeMs, Date.parse("2023-05-01T04:00:00Z"));
+  const again = await call("exif.batchScan", { folder: root, options: {} });
+  assert.equal(again.rows.length, 0, "the zone is now in the file, so it agrees");
 });

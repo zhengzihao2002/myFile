@@ -78,6 +78,9 @@
       );
 
       function changed() {
+        // A different folder makes the shown result out of date.
+        result = null;
+        replace(out);
         runBtn.disabled = !(dropA.paths.length && dropB.paths.length);
       }
 

@@ -6,7 +6,7 @@
 
   const LABEL = { exif: "EXIF date", created: "Created", modified: "Modified" };
   const NOTE = { exif: "inside the file", created: "what Finder shows", modified: "what Finder shows" };
-  const TZ_KIND = { stored: ["green", "stored in the file"], gps: ["blue", "guessed from GPS"], default: ["accent", "your default"], system: ["amber", "assumed: this Mac"], chosen: ["accent", "chosen by you"] };
+  const TZ_KIND = { stored: ["green", "stored in the file"], gps: ["blue", "guessed from GPS"], unknown: ["amber", "not known yet"], chosen: ["accent", "chosen by you"] };
 
   const dirOf = (rel) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "");
 
@@ -40,12 +40,11 @@
         glyph: "folder",
         onChange: () => (scanBtn.disabled = !drop.paths.length),
       });
-      const setupZone = zonePicker({ autoLabel: () => `This Mac's time zone (${system.label})`, onChange: () => {} });
-      const setupGps = MF.Option({ title: "Guess the time zone from GPS", desc: "For files that don't store one. A position near a border can land in the wrong zone, so this is approximate.", checked: true, onChange: () => {} });
+      const setupGps = MF.Option({ title: "Guess the time zone from GPS", desc: "For files that store no time zone but do have a GPS position. A position near a border can land in the wrong zone, so this is approximate. Files with neither are never guessed: you choose their zone, one file at a time.", checked: true, onChange: () => {} });
       const scanBtn = MF.Button("Scan", { kind: "primary", size: "lg", iconName: "search", disabled: true, onClick: runScan });
       const setup = h(
         "div.bt-setup",
-        h("div.bt-setup-in", drop.el, h("div.card.card-pad", h("div", { style: { fontWeight: "650", marginBottom: "2px" } }, "Files that don't say where they were taken"), h("div.muted.small", { style: { marginBottom: "10px" } }, "Many photos store a time of day but no time zone. Pick the zone to assume for them when GPS can't tell."), setupZone.el, h("div", { style: { marginTop: "10px", borderTop: "1px solid var(--line)" } }, setupGps.el)), h("div.card.card-pad", h("div", { style: { fontWeight: "650", marginBottom: "6px" } }, "How it works"), h("ol.bt-how", h("li", "It looks at every photo and video in the folder (and below) and compares the EXIF date, the created date and the modified date. Files where all three agree are skipped."), h("li", "For each file that doesn't agree you see the picture and decide which date wins, or change just one. A time zone is taken into account, so a photo taken in Beijing and fixed on a Mac in New York still agrees when it goes back to China."), h("li", "Folders keep their own modified dates: writing inside a folder can move it, so it is put back and the original is saved in History.")), h("div.row", { style: { marginTop: "14px", justifyContent: "flex-end" } }, scanBtn))),
+        h("div.bt-setup-in", drop.el, h("div.card.card-pad", { style: { paddingTop: "4px", paddingBottom: "4px" } }, setupGps.el), h("div.card.card-pad", h("div", { style: { fontWeight: "650", marginBottom: "6px" } }, "How it works"), h("ol.bt-how", h("li", "It looks at every photo and video in the folder (and below) and compares the EXIF date, the created date and the modified date. Files where all three agree are skipped."), h("li", "For each file that doesn't agree you see the picture and decide which date wins, or change just one. A time zone is taken into account, so a photo taken in Beijing and fixed on a Mac in New York still agrees when it goes back to China. If a photo says nothing about its time zone and has no GPS, you pick the zone for that file yourself."), h("li", "Folders keep their own modified dates: writing inside a folder can move it, so it is put back and the original is saved in History.")), h("div.row", { style: { marginTop: "14px", justifyContent: "flex-end" } }, scanBtn))),
       );
 
       // ----- review screen -----
@@ -121,14 +120,14 @@
         } else if (d.choice === "one" && d.oneTarget !== d.oneSrc) set[d.oneTarget] = d.oneSrc;
         return { set, tz: d.tz || null, writeTz: Boolean(d.writeTz) };
       }
-      const options = () => ({ defaultZone: reviewZone ? reviewZone.value : "", useGps: reviewGps.checked });
+      const options = () => ({ useGps: reviewGps.checked });
 
       // ----- scan -----
       async function runScan() {
         const folder = drop.paths[0];
         if (!folder) return;
         try {
-          const res = await MF.busy("Looking at photos and videos…", "exif.batchScan", { folder, options: { defaultZone: setupZone.value, useGps: setupGps.checked } }, (p) => {
+          const res = await MF.busy("Looking at photos and videos…", "exif.batchScan", { folder, options: { useGps: setupGps.checked } }, (p) => {
             if (p.phase === "find") return { label: "Finding photos and videos…", left: `${fmt.num(p.found)} found` };
             return { label: "Reading dates…", ratio: p.total ? p.done / p.total : null, left: `${fmt.num(p.done)} of ${fmt.num(p.total)} files` };
           });
@@ -138,7 +137,6 @@
         }
       }
 
-      let reviewZone = null;
       let reviewGps = null;
       function startReview(res) {
         scan = res;
@@ -152,7 +150,6 @@
         current = null;
         outcome = null;
         for (const r of res.rows) rows.set(r.path, r);
-        reviewZone = zonePicker({ autoLabel: () => `This Mac (${system.label})`, value: setupZone.value, onChange: reclassify });
         reviewGps = { checked: setupGps.checked };
         tab = "todo";
         setup.classList.add("hidden");
@@ -195,7 +192,7 @@
         return h(
           `div.bt-item${current && current.path === row.path ? ".on" : ""}`,
           icon(row.movie ? "video" : "photo"),
-          h("div.bt-txt", h("div.bt-name", row.name), h("div.bt-sub", st ? (st === "saved" ? "Saved" : st === "partial" ? "Saved, still differs" : "Skipped") : `${fmt.gap(row.spreadMs)} apart${bits.length ? ` · ${bits.join(" · ")}` : ""}`), dirOf(row.rel) ? h("div.bt-dir", dirOf(row.rel)) : null),
+          h("div.bt-txt", h("div.bt-name", row.name), h("div.bt-sub", st ? (st === "saved" ? "Saved" : st === "partial" ? "Saved, still differs" : "Skipped") : row.needsZone ? "Time zone unknown: choose it" : `${fmt.gap(row.spreadMs)} apart${bits.length ? ` · ${bits.join(" · ")}` : ""}`), dirOf(row.rel) ? h("div.bt-dir", dirOf(row.rel)) : null),
         );
       }
 
@@ -209,8 +206,9 @@
           h("span", h("b", fmt.num(todo)), " to decide"),
           h("span.muted", ` · ${fmt.num(c.agree)} already agree`),
           c.noExif ? h("span.muted", ` · ${fmt.num(c.noExif)} without an EXIF date`) : null,
+          c.needsZone ? h("span.muted", ` · ${fmt.num(c.needsZone)} need a time zone`) : null,
         );
-        replace(zoneLine, h("div.muted.small", "Time zone for files that store none"), reviewZone.el, h("label.bt-gps", h("input", { type: "checkbox", checked: reviewGps.checked, on: { change: (e) => { reviewGps.checked = e.target.checked; reclassify(); } } }), " Guess from GPS first"));
+        replace(zoneLine, h("label.bt-gps", h("input", { type: "checkbox", checked: reviewGps.checked, on: { change: (e) => { reviewGps.checked = e.target.checked; reclassify(); } } }), " Guess from GPS first"));
         tabs = MF.Tabs({ tabs: [{ id: "todo", label: "To do", count: todo }, { id: "saved", label: "Saved", count: saved }, { id: "skipped", label: "Skipped", count: skipped }], value: tab, onChange: (id) => { tab = id; table.setRows(allRows().filter(inTab)); } });
         replace(tabsHost, tabs.el);
         table = MF.VirtualTable({ fill: true, rowHeight: 58, columns: [{ label: "Files", width: "1fr", render: itemCell }], rows: allRows().filter(inTab), empty: tab === "todo" ? "Nothing left to decide." : "Nothing here yet.", onRowClick: (row) => select(row) });
@@ -224,17 +222,19 @@
         tabs.setCount("todo", todo);
         tabs.setCount("saved", [...status.values()].filter((s) => s !== "skipped").length);
         tabs.setCount("skipped", [...status.values()].filter((s) => s === "skipped").length);
-        replace(countsLine, h("span", h("b", fmt.num(todo)), " to decide"), h("span.muted", ` · ${fmt.num(scan.counts.agree)} already agree`), scan.counts.noExif ? h("span.muted", ` · ${fmt.num(scan.counts.noExif)} without an EXIF date`) : null);
+        replace(countsLine, h("span", h("b", fmt.num(todo)), " to decide"), h("span.muted", ` · ${fmt.num(scan.counts.agree)} already agree`), scan.counts.noExif ? h("span.muted", ` · ${fmt.num(scan.counts.noExif)} without an EXIF date`) : null, scan.counts.needsZone ? h("span.muted", ` · ${fmt.num(scan.counts.needsZone)} need a time zone`) : null);
         table.setRows(allRows().filter(inTab));
         renderBulk(todo);
         renderFoot();
       }
 
-      function renderBulk(todo) {
-        if (!todo) return replace(bulkHost);
+      function renderBulk(todoAll) {
+        const todo = todoRows().filter((r) => !r.needsZone).length;
+        const waiting = todoAll - todo;
+        if (!todo) return replace(bulkHost, waiting ? h("div.muted.small", `${fmt.plural(waiting, "file")} need${waiting === 1 ? "s" : ""} a time zone chosen one by one.`) : null);
         const sel = h("select.select", h("option", { value: "exif" }, "Everything follows EXIF"), h("option", { value: "modified" }, "Everything follows Modified"), h("option", { value: "created", disabled: !scan.birthSupported }, "Everything follows Created"));
         const btn = MF.Button(`Apply to all ${fmt.num(todo)} remaining`, { size: "sm", iconName: "wand", onClick: () => bulk(sel.value, btn) });
-        replace(bulkHost, h("div.muted.small", { style: { marginBottom: "6px" } }, "Same choice for every file left (uses the time zone above):"), h("div.row", { style: { gap: "8px", flexWrap: "wrap" } }, sel, btn));
+        replace(bulkHost, h("div.muted.small", { style: { marginBottom: "6px" } }, `Same choice for every file whose time zone is known${waiting ? ` (${fmt.num(waiting)} more need a zone chosen one by one)` : ""}:`), h("div.row", { style: { gap: "8px", flexWrap: "wrap" } }, sel, btn));
       }
 
       function renderFoot() {
@@ -252,10 +252,8 @@
         if (!scan) return;
         try {
           const res = await MF.busy("Looking at photos and videos…", "exif.batchScan", { folder: scan.folder, options: options() }, (p) => (p.phase === "find" ? { label: "Finding photos and videos…", left: `${fmt.num(p.found)} found` } : { label: "Reading dates…", ratio: p.total ? p.done / p.total : null, left: `${fmt.num(p.done)} of ${fmt.num(p.total)} files` }));
-          const keepZone = reviewZone.value;
           const keepGps = reviewGps.checked;
           startReview(res);
-          reviewZone.set(keepZone);
           reviewGps.checked = keepGps;
           renderLeft();
         } catch (err) {
@@ -371,6 +369,18 @@
       };
 
       function dateCard(o) {
+        if (o.needsZone) {
+          // Without a zone the EXIF time can't be turned into a moment, so nothing is compared or promised yet.
+          const f = o.fields;
+          const block = (k, now, sub) => h("div.bt-field", h("div.bt-fh", h("span.bt-fl", LABEL[k]), h("span.bt-fn", NOTE[k])), h("div.bt-now", now), sub ? h("div.bt-mac", sub) : null);
+          return h(
+            "div.kv",
+            h("div.kvh", icon("calendar"), "Dates", h("div.right", h("span.badge.amber", icon("alert"), "Choose a time zone to compare"))),
+            block("exif", o.exifAsStored.replace(" (no time zone)", ""), "no time zone stored"),
+            f.created ? block("created", timeEl(f.beforeMacOnly || f.created.beforeMac), "on this Mac") : null,
+            block("modified", timeEl(f.modified.beforeMac), "on this Mac"),
+          );
+        }
         const blocks = ["exif", "created", "modified"]
           .filter((k) => o.fields[k])
           .map((k) => {
@@ -391,19 +401,19 @@
 
       function tzCard(o, d) {
         const [badgeKind, badgeText] = TZ_KIND[o.tz.kind] || ["", o.tz.kind];
-        const picker = zonePicker({ autoLabel: () => "Automatic (as above)", value: d.tz, onChange: (v) => setDecision({ tz: v, writeTz: v ? true : d.writeTz }) });
+        const picker = zonePicker({ autoLabel: () => (o.needsZone ? "Choose a zone…" : "Automatic (as above)"), value: d.tz, onChange: (v) => setDecision({ tz: v, writeTz: v ? true : d.writeTz }) });
         const chip = (label, id) => h(`button.bt-chip${d.tz === id ? ".on" : ""}`, { type: "button", on: { click: () => setDecision({ tz: id, writeTz: true }) } }, label);
-        const warn = o.tz.kind === "system" ? MF.Callout("amber", "This file doesn't say where it was taken and has no GPS, so this Mac's time zone is assumed. Pick the real one below if you know it.") : o.tz.kind === "gps" ? h("div.muted.small", "Worked out from where the photo was taken. Near a border it can be the neighbouring zone.") : null;
+        const warn = o.needsZone ? MF.Callout("amber", h("b", "Choose this file's time zone. "), "It doesn't say where it was taken and has no GPS, so nothing is guessed. Until you choose, it can't be saved.") : o.tz.kind === "gps" ? h("div.muted.small", "Worked out from where the photo was taken. Near a border it can be the neighbouring zone.") : null;
         return h(
           "div.kv",
           h("div.kvh", icon("clock"), "Time zone", h("div.right", h(`span.badge.${badgeKind}`, badgeText))),
           h(
             "div.bt-tz",
-            h("div.bt-tzmain", o.tz.label),
+            h("div.bt-tzmain", o.needsZone ? "Not chosen yet" : o.tz.label),
             o.movie ? h("div.muted.small", "A video stores one exact moment, so the zone only decides how it is written out and shown here.") : null,
             warn,
             h("div.row", { style: { gap: "6px", flexWrap: "wrap", marginTop: "8px" } }, chip("Beijing", "Asia/Shanghai"), chip("Eastern", "America/New_York"), picker.el),
-            h("div", { style: { marginTop: "8px", borderTop: "1px solid var(--line)" } }, MF.Option({ title: "Save this time zone in the file", desc: o.movie ? "Writes Keys:CreationDate with the offset." : "Writes the OffsetTime tags in its EXIF.", checked: o.writeTz || d.writeTz, onChange: (v) => setDecision({ writeTz: v }) }).el),
+            h("div", { style: { marginTop: "8px", borderTop: "1px solid var(--line)" } }, MF.Option({ title: "Save this time zone in the file", desc: (o.movie ? "Writes Keys:CreationDate with the offset." : "Writes the OffsetTime tags in its EXIF.") + " Without it, this file asks for its zone again next time.", checked: o.writeTz || d.writeTz, onChange: (v) => setDecision({ writeTz: v }) }).el),
           ),
         );
       }
@@ -436,10 +446,10 @@
         const o = outcome;
         const d = decisionFor(current);
         replace(sideScroll, dateCard(o), tzCard(o, d), choiceCard(o, d));
-        const valid = d.choice !== "" && !(d.choice === "one" && d.oneTarget === d.oneSrc);
+        const valid = d.choice !== "" && !(d.choice === "one" && d.oneTarget === d.oneSrc) && !o.needsZone;
         const saveBtn = MF.Button("Save & next", { kind: "primary", size: "lg", iconName: "check", disabled: !valid || !o.anything, onClick: () => save(saveBtn) });
         const skipBtn = MF.Button("Skip", { kind: "ghost", onClick: skip });
-        replace(sideFoot, skipBtn, h("span.spacer"), !valid ? h("span.muted.small", "Choose what should win") : !o.anything ? h("span.muted.small", "Nothing would change") : null, saveBtn);
+        replace(sideFoot, skipBtn, h("span.spacer"), o.needsZone ? h("span.muted.small", "Choose the time zone first") : !valid ? h("span.muted.small", "Choose what should win") : !o.anything ? h("span.muted.small", "Nothing would change") : null, saveBtn);
       }
 
       // ----- saving -----
@@ -477,16 +487,17 @@
       }
 
       async function bulk(policy, button) {
-        const targets = todoRows().filter((r) => policy !== "exif" || r.hasExif);
+        const targets = todoRows().filter((r) => !r.needsZone && (policy !== "exif" || r.hasExif));
         if (!targets.length) {
           MF.toast("Nothing to apply", { kind: "warn", detail: "None of the remaining files has an EXIF date to follow." });
           return;
         }
-        const skippedNoExif = todoRows().length - targets.length;
+        const skippedNoExif = todoRows().filter((r) => !r.needsZone).length - targets.length;
+        const waitingZone = todoRows().filter((r) => r.needsZone).length;
         const word = { exif: "the EXIF date", modified: "the Modified date", created: "the Created date" }[policy];
         const ok = await MF.confirm({
           title: `Fix ${fmt.plural(targets.length, "file")}?`,
-          message: `For each file, the other dates are set to ${word}${policy === "exif" ? "" : " (the EXIF date is written into the file)"}, read in each file's own time zone. ${skippedNoExif ? `${fmt.plural(skippedNoExif, "file")} without an EXIF date stay in the list. ` : ""}Folder dates are kept, and everything can be undone from History.`,
+          message: `For each file, the other dates are set to ${word}${policy === "exif" ? "" : " (the EXIF date is written into the file)"}, read in each file's own time zone. ${skippedNoExif ? `${fmt.plural(skippedNoExif, "file")} without an EXIF date stay in the list. ` : ""}${waitingZone ? `${waitingZone === 1 ? "1 file whose time zone is unknown stays" : `${fmt.num(waitingZone)} files whose time zone is unknown stay`} in the list for you to do one by one. ` : ""}Folder dates are kept, and everything can be undone from History.`,
           confirm: "Fix them",
           iconName: "wand",
         });
@@ -527,13 +538,11 @@
 
       return {
         el: root,
-        actions: () => (scan ? MF.Button("Another folder", { size: "sm", iconName: "folder", onClick: reset }) : null),
         async onShow() {
           try {
             const z = await api.run("exif.batchZones");
             zones = z.zones;
             system = z.system;
-            setupZone.fill();
           } catch {
             // the pickers just stay short
           }

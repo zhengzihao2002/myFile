@@ -16,8 +16,9 @@
 // correct when the files go back to China.
 //
 // The zone comes from, in this order: the offset stored in the file, the GPS
-// position (approximate, near borders it can be wrong), the default the user
-// picked, this Mac's own zone.
+// position (approximate, near borders it can be wrong), or the user's choice
+// for that one file. A photo with none of those is never guessed: it stays in the
+// list until its zone is chosen.
 //
 // Writing a file inside a folder can change the folder's modified date
 // (ExifTool works through a temporary file). Every folder involved is noted
@@ -48,11 +49,9 @@ const PHOTO_OFFSET_TAGS = ["OffsetTimeOriginal", "OffsetTimeDigitized", "OffsetT
 
 /** Scan options as the rest of this module wants them. */
 function normalizeOptions(options, settings) {
-  const defaultSpec = tz.parseSpec(options.defaultZone);
   return {
     includeAll: false,
     useGps: options.useGps !== false,
-    defaultSpec,
     tolMs: Math.max(1, Number(options.tolMs) || Number(settings.toleranceMs) || 1000),
     birthSupported: options.birthSupported !== undefined ? Boolean(options.birthSupported) : canSetBirthtime(),
   };
@@ -66,15 +65,15 @@ function resolveTz(file, override, opts) {
     const zone = tz.zoneFromGps(file.gps.lat, file.gps.lon);
     if (zone) return { spec: { zone }, kind: "gps" };
   }
-  if (opts.defaultSpec) return { spec: opts.defaultSpec, kind: "default" };
-  return { spec: { zone: tz.systemZone() }, kind: "system" };
+  // Nothing says where it was taken. This Mac's zone is only used to show something; the
+  // file can't be saved until the user picks its zone.
+  return { spec: { zone: tz.systemZone() }, kind: "unknown" };
 }
 
 const TZ_KIND_TEXT = {
   stored: "stored in the file",
   gps: "guessed from the GPS position",
-  default: "your default for files without one",
-  system: "this Mac's zone: the file says nothing else",
+  unknown: "not known: choose it for this file",
   chosen: "chosen by you",
 };
 
@@ -114,6 +113,8 @@ function computeOutcome(file, decision, opts) {
   const ref = after.exif ?? after.modified;
   const offsetMin = tz.offsetAt(zone.spec, ref);
   const writeTz = Boolean(dec.writeTz) && (file.has || changes.exif);
+  // A photo whose time zone nobody knows can't be judged or saved yet.
+  const needsZone = zone.kind === "unknown" && file.has && !file.absolute;
   const values = [after.exif, after.created, after.modified].filter((v) => v !== null && v !== undefined);
   const spread = values.length ? Math.max(...values) - Math.min(...values) : 0;
   return {
@@ -125,7 +126,8 @@ function computeOutcome(file, decision, opts) {
     newWall: after.exif === null || after.exif === undefined ? null : tz.instantToWall(after.exif, zone.spec),
     keepSubsec: !changes.exif,
     spread,
-    agree: spread <= opts.tolMs,
+    needsZone,
+    agree: spread <= opts.tolMs && !needsZone,
     anything: changes.exif || changes.created || changes.modified || writeTz,
   };
 }
@@ -162,6 +164,7 @@ function classify(file, opts) {
   return {
     out,
     agree: out.agree,
+    needsZone: out.needsZone,
     pairs: { exifModified: far(b.exif, b.modified), exifCreated: far(b.exif, b.created), createdModified: far(b.created, b.modified) },
   };
 }
@@ -227,6 +230,7 @@ function listRow(raw, c, root) {
     createdMs: out.before.created,
     modifiedMs: out.before.modified,
     spreadMs: out.spread,
+    needsZone: out.needsZone,
     pairs: c.pairs,
     tzKind: out.tz.kind,
     tzLabel: out.tz.label,
@@ -244,6 +248,7 @@ function classifyAll(scan, opts) {
     }
     counts.review++;
     if (!raw.has) counts.noExif++;
+    if (c.out.needsZone) counts.needsZone = (counts.needsZone || 0) + 1;
     rows.push(listRow(raw, c, scan.folder));
   }
   rows.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
@@ -329,6 +334,7 @@ function describeOutcome(raw, out, opts) {
     writeTz: out.writeTz,
     agree: out.agree,
     spreadMs: out.spread,
+    needsZone: out.needsZone,
     anything: out.anything,
     writes: exifWrites(raw, out).map(([t]) => t),
   };
@@ -400,6 +406,7 @@ async function apply(ctx, { scanId, items }, task) {
       const [raw] = await readRaws(ctx, [item.path], { signal: task.signal });
       if (!raw) throw new Error("The file is gone.");
       const out = computeOutcome(raw, item.decision, s.opts);
+      if (out.needsZone) throw new UserError("Choose this file's time zone first: it doesn't say where it was taken and has no GPS.");
       if (!out.anything) {
         result.ok = true;
         result.nothing = true;

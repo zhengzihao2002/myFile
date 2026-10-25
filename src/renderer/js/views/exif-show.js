@@ -300,7 +300,6 @@
         el: root,
         actions: () => [
           MF.Button("Open…", { iconName: "plus", onClick: browse }),
-          files.length ? MF.Button("Clear", { kind: "ghost", iconName: "x", onClick: clearAll }) : null,
         ],
         onShow(params) {
           if (params.browse) browse();

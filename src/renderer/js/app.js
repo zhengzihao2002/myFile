@@ -70,6 +70,27 @@
     document.body.appendChild(h("div.app", sidebar, main));
   }
 
+  // Screens that hold work on screen get a Clear button; Overview, History and Settings don't.
+  const NO_CLEAR = new Set(["home", "history", "settings"]);
+
+  /** The header buttons for a screen: its own, then Clear. */
+  function headerActions(id, instance) {
+    const own = instance.actions ? instance.actions() : null;
+    if (NO_CLEAR.has(id)) return own;
+    return [own, MF.Button("Clear", { size: "sm", iconName: "x", title: "Clear this screen, as if myFile had just been opened", onClick: () => MF.clearView(id) })];
+  }
+
+  /**
+   * Throws away everything a screen is showing (files, results, choices) and
+   * builds it again, as if the app had just started. Other screens are left alone.
+   */
+  MF.clearView = function clearView(id) {
+    const old = mounted.get(id);
+    if (old && old.onHide) old.onHide();
+    mounted.delete(id);
+    MF.go(id);
+  };
+
   MF.go = function go(id, params) {
     const view = MF.views[id];
     if (!view) return;
@@ -83,7 +104,7 @@
     for (const [vid, b] of navButtons) b.classList.toggle("active", vid === id);
     replace(header.title, view.crumb ? h("span.crumb", `${view.crumb} ›`) : null, view.title);
     header.sub.textContent = view.subtitle || "";
-    replace(header.actions, instance.actions ? instance.actions() : null);
+    replace(header.actions, headerActions(id, instance));
     const wrap = h(`div.view${view.full ? ".full" : ""}`, instance.el);
     replace(content, wrap);
     content.scrollTop = 0;
@@ -97,7 +118,7 @@
 
   MF.refreshHeader = function refreshHeader() {
     if (!current) return;
-    replace(header.actions, current.instance.actions ? current.instance.actions() : null);
+    replace(header.actions, headerActions(current.id, current.instance));
   };
 
   // ---------------------------------------------------------------------------
