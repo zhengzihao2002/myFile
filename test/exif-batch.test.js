@@ -281,3 +281,13 @@ test("a video without a chosen zone is shown in UTC, not in this Mac's zone", ()
   assert.equal(out.needsZone, false);
   assert.equal(tz.instantToWall(out.after.created, out.tz.spec), "2010:08:01 09:08:27");
 });
+
+test("choosing a city whose offset the file already stores changes nothing", () => {
+  const f = file({ createdMs: at("2023-05-01T04:00:00Z"), modifiedMs: at("2023-05-01T04:00:00Z") });
+  const same = batch.computeOutcome(f, { tz: "Asia/Shanghai", writeTz: true }, OPTS);
+  assert.equal(same.writeTz, false);
+  assert.equal(same.anything, false);
+  assert.equal(same.sameOffset, true);
+  const other = batch.computeOutcome(f, { tz: "Asia/Tokyo", writeTz: true }, OPTS);
+  assert.equal(other.writeTz, true, "a different offset is a real change");
+});

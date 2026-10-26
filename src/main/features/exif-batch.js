@@ -112,7 +112,9 @@ function computeOutcome(file, decision, opts) {
   };
   const ref = after.exif ?? after.modified;
   const offsetMin = tz.offsetAt(zone.spec, ref);
-  const writeTz = Boolean(dec.writeTz) && (file.has || changes.exif);
+  // Files keep only an offset ("+08:00"), never a city: choosing Beijing for a file that already says +08:00 changes nothing.
+  const sameOffset = !file.absolute && file.storedOffsetMin !== null && file.storedOffsetMin !== undefined && file.storedOffsetMin === offsetMin;
+  const writeTz = Boolean(dec.writeTz) && (file.has || changes.exif) && !sameOffset;
   // A photo whose time zone nobody knows can't be judged or saved yet.
   const needsZone = zone.kind === "unknown" && file.has && !file.absolute;
   const values = [after.exif, after.created, after.modified].filter((v) => v !== null && v !== undefined);
@@ -123,6 +125,7 @@ function computeOutcome(file, decision, opts) {
     after,
     changes,
     writeTz,
+    sameOffset: Boolean(dec.writeTz) && sameOffset,
     newWall: after.exif === null || after.exif === undefined ? null : tz.instantToWall(after.exif, zone.spec),
     keepSubsec: !changes.exif,
     spread,
@@ -350,6 +353,7 @@ function describeOutcome(raw, out, opts) {
     fields: { exif: field("exif"), created: opts.birthSupported ? field("created") : null, modified: field("modified") },
     newWall: out.newWall,
     writeTz: out.writeTz,
+    sameOffset: out.sameOffset,
     agree: out.agree,
     spreadMs: out.spread,
     needsZone: out.needsZone,

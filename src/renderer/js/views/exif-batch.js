@@ -128,7 +128,7 @@
       }
 
       let reviewGps = null;
-      function startReview(res) {
+      async function startReview(res) {
         scan = res;
         zones = res.zones;
         system = res.system;
@@ -147,7 +147,7 @@
         renderLeft();
         MF.refreshHeader();
         const first = todoRows()[0];
-        if (first) select(first);
+        if (first) await select(first);
         else renderEmpty();
       }
 
@@ -416,14 +416,16 @@
         const suggest = o.suggest && !(chosen && d.tz === o.suggest.zone)
           ? h("div.bt-suggest", icon("pin"), h("span", "GPS suggests ", h("b", o.suggest.label), ". Near a border it can be the neighbouring zone."), MF.Button("Use this", { size: "sm", onClick: () => setDecision({ tz: o.suggest.zone, writeTz: true }) }))
           : null;
-        const nowText = h("div.bt-tzmain", chosen ? h("span", h("span.bt-chg-old", o.tzOriginal), icon("arrow"), h("span.bt-chg-new", o.tz.label)) : o.tz.kind === "stored" ? null : "Not chosen");
+        const changing = chosen && o.writeTz;
+        const nowText = h("div.bt-tzmain", changing ? h("span", h("span.bt-chg-old", o.tzOriginal), icon("arrow"), h("span.bt-chg-new", o.tz.label)) : o.tz.kind === "stored" ? null : "Not chosen");
         return h(
           "div.kv",
           h("div.kvh", icon("clock"), "Time zone", h("div.right", h(`span.badge${badgeKind ? "." + badgeKind : ""}`, badgeText))),
           h(
             "div.bt-tz",
-            chosen ? null : h("div.muted.small", "In the file now: ", h("b", o.tzOriginal)),
-            nowText,
+            changing ? null : h("div.muted.small", "In the file now: ", h("b", o.tzOriginal)),
+            chosen && !changing ? h("div.bt-tzmain", o.tz.label) : nowText,
+            o.sameOffset ? h("div.muted.small", "Files only keep the offset, not a city name, and this file already says the same offset, so nothing changes.") : null,
             note,
             suggest,
             h("div.bt-chips", chip("Beijing", "Asia/Shanghai"), chip("Eastern", "America/New_York"), chip("This Mac", system.zone)),
@@ -459,6 +461,7 @@
 
       function renderPanel() {
         const o = outcome;
+        if (!o) return;
         const d = decisionFor(current);
         replace(sideScroll, banner, dateCard(o), tzCard(o, d), choiceCard(o, d), changesCard(o), single ? h("div.card.card-pad", { style: { paddingTop: "8px", paddingBottom: "8px" } }, zoneLine) : null);
         const valid = d.choice !== "" && !(d.choice === "one" && d.oneTarget === d.oneSrc) && !o.needsZone;
@@ -555,7 +558,7 @@
           const res = await api.run("exif.batchScan", { folder: file, options: { single: true, useGps: true } });
           zones = res.zones;
           system = res.system;
-          startReview(res);
+          await startReview(res);
         } catch (err) {
           if (!err.cancelled) MF.fail(err);
         }
