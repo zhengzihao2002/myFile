@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { makeJpeg, tmpDir, testContext, readTags, setMtime } = require("./helpers");
+const { makeJpeg, makeMovie: makeMovieAt, tmpDir, testContext, readTags, setMtime } = require("./helpers");
 const tz = require("../src/main/lib/tz");
 const batch = require("../src/main/features/exif-batch");
 
@@ -263,4 +263,13 @@ test("a single file can be scanned and edited, even when its dates already agree
   assert.equal(res.results[0].ok, true);
   assert.equal(Math.abs(fs.statSync(root).mtimeMs - folderBefore) < 5, true, "parent folder date kept");
   await assert.rejects(call("exif.batchScan", { folder: file, options: {} }), /not a single file/);
+});
+
+test("EXIF Show reports a QuickTime date as one exact UTC moment, not a stored zone", async () => {
+  const file = makeMovieAt(path.join(tmpDir("show-utc"), "m.mov"));
+  await et.write(file, [["QuickTime:CreateDate", "2010:08:01 09:08:27Z"]]);
+  const r = await call("exif.inspect", { path: file });
+  assert.equal(r.taken.utc, true);
+  assert.equal(r.taken.offset, null);
+  assert.equal(r.taken.text, "2010:08:01 09:08:27");
 });

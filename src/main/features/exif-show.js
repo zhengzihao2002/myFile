@@ -9,6 +9,10 @@ const { execFile } = require("node:child_process");
 const { UserError, errText, extOf } = require("../lib/util");
 const { mediaKind, BROWSER_IMAGE, BROWSER_VIDEO, mimeOf, isQuickTime } = require("../lib/media");
 const { bestDate, momentText } = require("../lib/dates");
+const tz = require("../lib/tz");
+
+// QuickTime stores these as one exact moment (UTC) and no zone; ExifTool only shows them in this Mac's zone.
+const ABSOLUTE_TAGS = new Set(["QuickTime:CreateDate", "TrackCreateDate", "MediaCreateDate"]);
 
 const IS_MAC = process.platform === "darwin";
 
@@ -70,6 +74,13 @@ function formatDuration(seconds) {
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
   return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function takenInfo(taken, movie) {
+  const m = taken.moment;
+  const exact = movie && ABSOLUTE_TAGS.has(taken.tag) && Number.isFinite(m.ms);
+  if (exact) return { text: tz.instantToWall(m.ms, { offsetMin: 0 }), ms: m.ms, source: taken.source, offset: null, utc: true };
+  return { text: momentText(m), ms: m.ms, source: taken.source, offset: m.offset };
 }
 
 async function inspect(ctx, { path: file }) {
@@ -153,7 +164,7 @@ async function inspect(ctx, { path: file }) {
     size: st.size,
     kind,
     times: { createdMs: st.birthtimeMs, modifiedMs: st.mtimeMs, accessedMs: st.atimeMs },
-    taken: taken ? { text: momentText(taken.moment), ms: taken.moment.ms, source: taken.source, offset: taken.moment.offset } : null,
+    taken: taken ? takenInfo(taken, movie) : null,
     gps,
     summary,
     groups: groupList,

@@ -191,7 +191,7 @@
                 h(
                   "div",
                   h("div.when", `${w.y}-${String(w.mo).padStart(2, "0")}-${String(w.d).padStart(2, "0")}  ${w.hh}:${w.mm}:${w.ss}`),
-                  h("div.tz", `${t.offset ? `Time zone ${t.offset}` : "No time zone stored"} · from ${t.source}`),
+                  h("div.tz", `${t.utc ? "UTC · one exact moment, no time zone stored" : t.offset ? `Time zone ${t.offset}` : "No time zone stored"} · from ${t.source}`),
                 ),
               )
             : h("div.big-date", h("div.muted", "This file has no EXIF date.")),
