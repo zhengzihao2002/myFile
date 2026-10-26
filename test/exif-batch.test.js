@@ -273,3 +273,11 @@ test("EXIF Show reports a QuickTime date as one exact UTC moment, not a stored z
   assert.equal(r.taken.offset, null);
   assert.equal(r.taken.text, "2010:08:01 09:08:27");
 });
+
+test("a video without a chosen zone is shown in UTC, not in this Mac's zone", () => {
+  const f = file({ movie: true, absolute: true, absMs: at("2010-08-01T09:08:27Z"), storedOffsetMin: null, createdMs: at("2010-08-01T13:08:26Z"), modifiedMs: at("2010-08-01T13:08:26Z") });
+  const out = batch.computeOutcome(f, { set: { created: "exif", modified: "exif" } }, OPTS);
+  assert.equal(out.tz.offsetMin, 0);
+  assert.equal(out.needsZone, false);
+  assert.equal(tz.instantToWall(out.after.created, out.tz.spec), "2010:08:01 09:08:27");
+});

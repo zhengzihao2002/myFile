@@ -66,7 +66,8 @@ function resolveTz(file, override, opts) {
   if (!file.absolute && file.storedOffsetMin !== null && file.storedOffsetMin !== undefined) return { spec: { offsetMin: file.storedOffsetMin }, kind: "stored", suggest };
   // Nothing in the file says where it was taken. This Mac's zone is only used to show something;
   // a photo can't be saved until the user picks its zone.
-  return { spec: { zone: tz.systemZone() }, kind: "unknown", suggest };
+  // A video's date is one exact moment (UTC), so until a zone is chosen it is shown as UTC.
+  return { spec: file.absolute ? { offsetMin: 0 } : { zone: tz.systemZone() }, kind: "unknown", suggest };
 }
 
 const TZ_KIND_TEXT = {
