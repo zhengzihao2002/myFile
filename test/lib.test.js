@@ -136,3 +136,31 @@ test("History.append keeps the oldest snapshot of each file and folders last", (
     require("node:fs").rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("update check counts the commits a checkout is behind GitHub", async () => {
+  const { execFileSync } = require("node:child_process");
+  const updater = require("../src/main/features/updater");
+  const { tmpDir } = require("./helpers");
+  const base = tmpDir("updater");
+  const run = (cwd, ...args) => execFileSync("git", args, { cwd, stdio: "pipe" });
+  const origin = path.join(base, "origin.git");
+  fs.mkdirSync(origin);
+  run(origin, "init", "--bare", "-b", "main");
+  const work = path.join(base, "work");
+  run(base, "clone", origin, work);
+  const id = ["-c", "user.name=t", "-c", "user.email=t@t"];
+  fs.writeFileSync(path.join(work, "a.txt"), "1");
+  run(work, "add", ".");
+  run(work, ...id, "commit", "-m", "first");
+  run(work, "push", "origin", "HEAD:main");
+  const mine = path.join(base, "mine");
+  run(base, "clone", "-b", "main", origin, mine);
+  fs.writeFileSync(path.join(work, "a.txt"), "2");
+  run(work, ...id, "commit", "-am", "second change");
+  run(work, "push", "origin", "HEAD:main");
+  const ctx = { runtime: { projectRoot: mine }, updater: {} };
+  const res = await updater.check(ctx);
+  assert.equal(res.behind, 1);
+  assert.deepEqual(res.commits, ["second change"]);
+  await assert.rejects(updater.check({ runtime: { projectRoot: base } }), /can't update itself/);
+});

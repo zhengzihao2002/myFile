@@ -64,6 +64,7 @@ function start() {
     trash: (p) => shell.trashItem(p),
     fileUrl: (p) => pathToFileURL(p).href,
     extraInfo: { packaged: app.isPackaged, bundleId: runtime.bundleId },
+    updater: app.isPackaged ? { quitSoon: () => setTimeout(() => app.exit(0), 900) } : null,
     // Long syncs to an external drive keep the Mac from sleeping mid-copy.
     keepAwake: () => {
       const id = powerSaveBlocker.start("prevent-app-suspension");
@@ -254,6 +255,7 @@ function start() {
               submenu: [
                 { role: "about", label: "About myFile" },
                 { type: "separator" },
+                { label: "Check for Updates…", click: () => send("check-updates") },
                 { label: "Settings…", accelerator: "Cmd+,", click: () => send("navigate", { view: "settings" }) },
                 { type: "separator" },
                 { role: "services" },

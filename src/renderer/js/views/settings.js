@@ -2,6 +2,42 @@
 (function () {
   "use strict";
 
+  // Check GitHub for a newer myFile; if there is one, pull it and rebuild the app (what
+  // "git checkout main && git pull && bash install.sh" does by hand).
+  MF.checkForUpdates = async function checkForUpdates() {
+    const { h, fmt, api } = MF;
+    let res;
+    try {
+      res = await MF.busy("Checking GitHub for updates…", "update.check", {});
+    } catch (err) {
+      if (!err.cancelled) MF.fail(err);
+      return;
+    }
+    if (!res.behind) {
+      MF.toast("myFile is up to date", { kind: "success", detail: res.current });
+      return;
+    }
+    if (!res.canRestart) {
+      MF.toast(`${fmt.plural(res.behind, "update")} available`, { kind: "info", detail: "Updating from inside the app only works in the installed myFile.app." });
+      return;
+    }
+    const list = h("div", { style: { marginTop: "8px", maxHeight: "180px", overflowY: "auto", textAlign: "left", fontSize: "12.5px" } }, res.commits.slice(0, 12).map((c) => h("div", { style: { padding: "2px 0" } }, `• ${c}`)), res.commits.length > 12 ? h("div.muted", `…and ${fmt.num(res.behind - 12)} more`) : null);
+    const warn = res.dirty.length ? h("div.muted.small", { style: { marginTop: "8px" } }, `Files in the myFile folder were edited by hand (${res.dirty.join(", ")}); the update stops if they are in the way.`) : null;
+    const ok = await MF.confirm({
+      title: `${fmt.plural(res.behind, "update")} available`,
+      message: h("div", h("div", "myFile will download the update, close, rebuild itself (about a minute, longer if a new Electron is needed) and open again. Nothing you have set up is lost."), list, warn),
+      confirm: "Update and restart",
+      iconName: "refresh",
+    });
+    if (!ok) return;
+    try {
+      await MF.busy("Updating myFile…", "update.apply", {}, (p) => ({ label: p.label }));
+      MF.toast("Rebuilding myFile…", { kind: "info", detail: "The app closes now and opens again when it is ready.", timeout: 20000 });
+    } catch (err) {
+      if (!err.cancelled) MF.fail(err);
+    }
+  };
+
   const { h, fmt, api, replace } = MF;
 
   MF.views.settings = {
@@ -147,6 +183,7 @@
             h(
               "div.row",
               { style: { marginTop: "10px" } },
+              MF.Button("Check for updates", { size: "sm", kind: "primary", iconName: "refresh", onClick: () => MF.checkForUpdates() }),
               MF.Button("myFile on GitHub", { size: "sm", iconName: "external", onClick: () => api.openExternal("https://github.com/zhengzihao2002/myFile") }),
             ),
           ),

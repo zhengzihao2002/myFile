@@ -13,6 +13,7 @@ const { extOf } = require("./lib/util");
 const filetimes = require("./lib/filetimes");
 const volumes = require("./lib/volumes");
 const exifShow = require("./features/exif-show");
+const updater = require("./features/updater");
 const exifCopy = require("./features/exif-copy");
 const exifDates = require("./features/exif-dates");
 const folderCompare = require("./features/folder-compare");
@@ -22,7 +23,7 @@ const folderIndex = require("./features/folder-index");
 const filesync = require("./features/filesync");
 const history = require("./features/history");
 
-function createContext({ runtime, et, trash, fileUrl, appVersion, extraInfo = {}, keepAwake = null, volumeInfo = volumes }) {
+function createContext({ runtime, et, trash, fileUrl, appVersion, extraInfo = {}, keepAwake = null, updater = null, volumeInfo = volumes }) {
   filetimes.configure({ tmpDir: runtime.tmpDir });
   const memory = new Map();
   return {
@@ -36,6 +37,8 @@ function createContext({ runtime, et, trash, fileUrl, appVersion, extraInfo = {}
     volumes: volumeInfo,
     // Returns a function that lets the Mac sleep again.
     keepAwake,
+    // Set by the installed app: lets "Check for updates" quit it so it can be rebuilt.
+    updater,
     settings: new Settings(runtime.dataDir),
     history: new History(runtime.dataDir),
     // Plans and results kept between "check" and "apply" (newest 16).
@@ -182,6 +185,9 @@ function createHandlers(ctx) {
       ctx.history.clear();
       return [];
     },
+
+    "update.check": async () => updater.check(ctx),
+    "update.apply": wrap(updater.apply),
 
     "data.usage": async () => ({ dataDir: ctx.runtime.dataDir, bytes: dirSize(ctx.runtime.dataDir) }),
     "data.clearPreviews": async () => {

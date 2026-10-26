@@ -157,6 +157,7 @@
     MF.setTheme(MF.settings.theme);
     api.onMenu((msg) => {
       if (msg.action === "navigate") MF.go(msg.view);
+      if (msg.action === "check-updates") MF.checkForUpdates();
       if (msg.action === "open-inspect") MF.go("exif-show", { browse: true });
     });
     let start = "home";

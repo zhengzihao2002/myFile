@@ -134,3 +134,5 @@ bash scripts/dev.sh --test  # run the test suite
 
 
 **One file at a time:** in EXIF › Modify › *Use each file's own date*, drop a single photo or video to get the same editor as Batch Modify (preview, dates with time zone, which date wins, Undo) for just that file.
+
+**Updating:** Settings › About › *Check for updates* (or the myFile menu › *Check for Updates…*) fetches the latest version from GitHub, shows what changed, and on your OK pulls it, closes, rebuilds itself with `install.sh` and reopens. It is the same as `git checkout main && git pull && bash install.sh`. If a rebuild fails, a message points to `.runtime/update.log`.
