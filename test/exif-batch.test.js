@@ -291,3 +291,120 @@ test("choosing a city whose offset the file already stores changes nothing", () 
   const other = batch.computeOutcome(f, { tz: "Asia/Tokyo", writeTz: true }, OPTS);
   assert.equal(other.writeTz, true, "a different offset is a real change");
 });
+
+test("Everything follows Created previews EXIF writes, including a changed zone whose interpreted date already matches", async () => {
+  const raw = file({ path: "/preview.jpg", name: "preview.jpg", createdMs: at("2023-05-01T16:00:00Z"), modifiedMs: at("2024-01-01T00:00:00Z") });
+  const scanId = "created-preview";
+  ctx.remember(scanId, { raws: new Map([[raw.path, raw]]), opts: OPTS });
+  const preview = (decision) => call("exif.batchOutcome", { scanId, path: raw.path, decision });
+  const set = { exif: "created", modified: "created" };
+
+  const normal = await preview({ set });
+  assert.equal(normal.fields.exif.changed, true);
+  assert.equal(normal.fields.modified.changed, true);
+  assert.equal(normal.fields.created.changed, false);
+  assert.equal(normal.fields.exif.after, raw.createdMs);
+  assert.equal(normal.fields.modified.after, raw.createdMs);
+
+  const zoned = await preview({ set, tz: "America/New_York", writeTz: true });
+  assert.equal(zoned.fields.exif.before, zoned.fields.exif.after, "the chosen zone makes the interpreted instant match Created");
+  assert.equal(zoned.fields.exif.originalText, "2023-05-01 12:00:00 UTC+08:00");
+  assert.equal(zoned.fields.exif.afterText, "2023-05-01 12:00:00 UTC-04:00");
+  assert.equal(zoned.fields.exif.changed, true, "the old EXIF date must be crossed out because its stored offset will change");
+  assert.equal(zoned.fields.modified.changed, true);
+  assert.equal(zoned.fields.created.changed, false);
+  assert.ok(zoned.writes.includes("OffsetTimeOriginal"));
+
+  const notWriting = await preview({ set, tz: "America/New_York", writeTz: false });
+  assert.equal(notWriting.fields.exif.changed, false, "a zone used only for comparison does not rewrite EXIF");
+  const sameZone = await preview({ tz: "Asia/Shanghai", writeTz: true });
+  assert.equal(sameZone.fields.exif.changed, false, "choosing the stored offset still leaves EXIF alone");
+});
+
+test("Created and Modified sources retain fractional seconds in photo and video EXIF writes", async () => {
+  for (const movie of [false, true]) {
+    const root = tmpDir("follow-source");
+    const target = movie ? makeMovieAt(path.join(root, "test.mov")) : makeJpeg(path.join(root, "test.jpg"));
+    await et.write(target, movie ? [["QuickTime:CreateDate", "2015:12:29 19:28:42Z"]] : [["DateTimeOriginal", "2015:12:29 14:28:42"], ["OffsetTimeOriginal", "-05:00"]]);
+    const source = at("2023-05-01T16:00:00.123Z");
+    for (const src of ["created", "modified"]) {
+      const raw = file({ movie, createdMs: source, modifiedMs: source });
+      const out = batch.computeOutcome(raw, { set: { exif: src }, tz: "America/New_York", writeTz: true }, OPTS);
+      await et.write(target, batch.exifWrites(raw, out));
+      const info = await require("../src/main/features/exif-copy").readInfos(ctx, [target], {});
+      assert.equal(info.get(target).date.moment.ms, source, `${movie ? "video" : "photo"} follows ${src} including milliseconds`);
+    }
+    // Exercise the complete apply + reread + Undo path using the actual mtime.
+    setMtime(target, source + 1000);
+    const before = await require("../src/main/features/exif-copy").readInfos(ctx, [target], {});
+    const scan = await call("exif.batchScan", { folder: target, options: { single: true } });
+    const saved = await call("exif.batchApply", { scanId: scan.scanId, items: [{ path: target, decision: { set: { exif: "modified" } } }] });
+    assert.equal(saved.ok, 1);
+    const after = await require("../src/main/features/exif-copy").readInfos(ctx, [target], {});
+    assert.equal(after.get(target).date.moment.ms, fs.statSync(target).mtimeMs);
+    const undone = await call("history.revert", { id: saved.historyId });
+    assert.deepEqual(undone.failures, []);
+    const restored = await require("../src/main/features/exif-copy").readInfos(ctx, [target], {});
+    assert.equal(restored.get(target).date.moment.ms, before.get(target).date.moment.ms);
+  }
+});
+
+test("everything follows each source on disk, including Created, for photos and videos", async () => {
+  const { readInfos } = require("../src/main/features/exif-copy");
+  for (const movie of [false, true]) {
+    for (const src of ["created", "modified", "exif"]) {
+      const root = tmpDir("all-follow");
+      const target = movie ? makeMovieAt(path.join(root, "test.mov")) : makeJpeg(path.join(root, "test.jpg"));
+      await et.write(target, movie ? [["QuickTime:CreateDate", "2015:12:29 19:28:42Z"]] : [["DateTimeOriginal", "2015:12:29 14:28:42"], ["OffsetTimeOriginal", "-05:00"]]);
+      setMtime(target, at("2022-12-24T17:24:33.123Z"));
+      const st = fs.statSync(target);
+      const expected = src === "created" ? st.birthtimeMs : src === "modified" ? st.mtimeMs : at("2015-12-29T19:28:42Z");
+      // Linux can read Created but cannot change it. Enable it only when it is
+      // the unchanged source; macOS exercises it as a target as well.
+      const birthSupported = src === "created" || process.platform === "darwin";
+      const scan = await call("exif.batchScan", { folder: target, options: { single: true, birthSupported } });
+      const set = Object.fromEntries(["exif", "created", "modified"].filter(k => k !== src).map(k => [k, src]));
+      const saved = await call("exif.batchApply", { scanId: scan.scanId, items: [{ path: target, decision: { set } }] });
+      assert.equal(saved.ok, 1, JSON.stringify(saved));
+      const fresh = (await readInfos(ctx, [target], {})).get(target);
+      const times = fs.statSync(target);
+      assert.ok(Math.abs(fresh.date.moment.ms - expected) < 1, `${movie ? "video" : "photo"} EXIF follows ${src}`);
+      assert.ok(Math.abs(times.mtimeMs - expected) < 1, `Modified follows ${src}`);
+      if (birthSupported) assert.ok(Math.abs(times.birthtimeMs - expected) < 1, `Created follows ${src}`);
+    }
+  }
+});
+
+test("file-zone previews and writes do not depend on the current Mac time zone", async () => {
+  const previous = process.env.TZ;
+  const snapshots = [];
+  try {
+    for (const hostZone of ["UTC", "America/New_York", "Asia/Shanghai"]) {
+      process.env.TZ = hostZone;
+      const results = [];
+      for (const raw of [
+        file({ path: "/photo.jpg", createdMs: at("2015-12-29T19:28:42.123Z"), modifiedMs: at("2022-12-24T17:24:33Z") }),
+        file({ path: "/video.mov", movie: true, absolute: true, absMs: at("2015-12-29T19:28:42Z"), storedOffsetMin: null, createdMs: at("2015-12-29T19:28:42Z"), modifiedMs: at("2022-12-24T17:24:33Z") }),
+        file({ path: "/keys.mov", movie: true, wall: "2015:12:29 14:28:42", storedOffsetMin: -300, createdMs: at("2015-12-29T19:28:42Z"), modifiedMs: at("2022-12-24T17:24:33Z") }),
+      ]) {
+        ctx.remember("zone-preview", { raws: new Map([[raw.path, raw]]), opts: OPTS });
+        for (const src of ["exif", "created", "modified"]) {
+          const decision = { set: Object.fromEntries(["exif", "created", "modified"].filter(k => k !== src).map(k => [k, src])) };
+          const out = await call("exif.batchOutcome", { scanId: "zone-preview", path: raw.path, decision });
+          assert.equal(new Set(Object.values(out.fields).map(f => f.afterText)).size, 1, "all final dates use one file zone and moment");
+          results.push({ fields: Object.fromEntries(Object.entries(out.fields).map(([k, f]) => [k, { before: f.beforeText, after: f.afterText, original: f.originalText, changed: f.changed }])), writes: batch.exifWrites(raw, batch.computeOutcome(raw, decision, OPTS)) });
+          if (raw.absolute && src === "created") assert.equal(out.fields.modified.afterText, "2015-12-29 19:28:42 UTC+00:00", "the screenshot video stays in its stored UTC zone");
+        }
+      }
+      const unknown = batch.computeOutcome(file({ storedOffsetMin: null }), {}, OPTS);
+      assert.equal(unknown.before.exif, null, "no host-zone guess for an unzoned photo");
+      assert.equal(unknown.needsZone, true);
+      snapshots.push(results);
+    }
+    assert.deepEqual(snapshots[1], snapshots[0]);
+    assert.deepEqual(snapshots[2], snapshots[0]);
+  } finally {
+    if (previous === undefined) delete process.env.TZ;
+    else process.env.TZ = previous;
+  }
+});

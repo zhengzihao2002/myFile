@@ -488,14 +488,13 @@
     return h("span.arrow-change", h("span.old", oldText || "none"), icon("arrow"), h("span.new", newText || "none"));
   };
 
-  /** Old → new date, to the minute; the exact values are in the tooltip. */
+  /** Show exact old → new values, including offsets across DST changes. */
   MF.DateChange = function DateChange(oldMs, newMs) {
-    const el = MF.Change(fmt.date(oldMs, { seconds: false }), fmt.date(newMs, { seconds: false }));
-    el.title = `${fmt.date(oldMs)}  →  ${fmt.date(newMs)}`;
-    if (fmt.date(oldMs, { seconds: false }) === fmt.date(newMs, { seconds: false })) {
-      el.textContent = "";
-      el.append(h("span", { title: el.title }, `${fmt.date(newMs, { seconds: false })} (seconds differ)`));
-    }
+    // File-system-only comparisons have no EXIF zone: use neutral UTC rather
+    // than inventing a stored zone from whichever Mac is running the app.
+    const options = { milliseconds: true, zone: true, offsetMin: 0 };
+    const el = MF.Change(fmt.date(oldMs, options), fmt.date(newMs, options));
+    el.title = `${fmt.date(oldMs, options)}  →  ${fmt.date(newMs, options)}`;
     return el;
   };
 

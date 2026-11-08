@@ -146,14 +146,17 @@
     num(n) {
       return Number(n || 0).toLocaleString();
     },
-    date(ms, { seconds = true } = {}) {
-      if (!Number.isFinite(ms) || ms <= 0) return "—";
-      const d = new Date(ms);
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}${seconds ? `:${pad(d.getSeconds())}` : ""}`;
+    date(ms, { seconds = true, milliseconds = false, zone = true, offsetMin = 0 } = {}) {
+      if (!Number.isFinite(ms) || !Number.isFinite(new Date(ms).getTime())) return "—";
+      const offset = Number.isFinite(offsetMin) ? offsetMin : 0;
+      const d = new Date(ms + offset * 60000);
+      const get = (part) => d[`getUTC${part}`]();
+      const suffix = zone ? ` UTC${offset < 0 ? "-" : "+"}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}` : "";
+      return `${get("FullYear")}-${pad(get("Month") + 1)}-${pad(get("Date"))} ${pad(get("Hours"))}:${pad(get("Minutes"))}${seconds ? `:${pad(get("Seconds"))}${milliseconds ? `.${String(get("Milliseconds")).padStart(3, "0")}` : ""}` : ""}${suffix}`;
     },
     nice(ms) {
-      if (!Number.isFinite(ms) || ms <= 0) return "—";
-      return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
+      if (!Number.isFinite(ms) || !Number.isFinite(new Date(ms).getTime())) return "—";
+      return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium", timeZone: "UTC" }) + " UTC";
     },
     ago(ms) {
       const s = (Date.now() - ms) / 1000;
@@ -161,7 +164,7 @@
       if (s < 3600) return `${Math.round(s / 60)} min ago`;
       if (s < 86400) return `${Math.round(s / 3600)} h ago`;
       if (s < 86400 * 7) return `${Math.round(s / 86400)} d ago`;
-      return new Date(ms).toLocaleDateString(undefined, { dateStyle: "medium" });
+      return new Date(ms).toLocaleDateString(undefined, { dateStyle: "medium", timeZone: "UTC" }) + " UTC";
     },
     duration(ms) {
       if (!Number.isFinite(ms)) return "—";

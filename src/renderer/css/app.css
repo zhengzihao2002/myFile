@@ -886,7 +886,7 @@ select.select {
 .bt-listhead .tab { padding: 0 8px; font-size: 12px; }
 .bt-tz { padding: 12px 14px; }
 .bt-tzmain { font-weight: 650; font-size: 13.5px; margin-bottom: 2px; }
-.bt-chips { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+.bt-chips { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 10px; }
 .bt-zonepick { margin-top: 8px; }
 .bt-chip { height: 30px; padding: 0 8px; white-space: nowrap; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 12.5px; font-weight: 550; cursor: pointer; }
 .bt-chip:hover { background: var(--hover); }
@@ -908,6 +908,11 @@ select.select {
 .bt-embed { height: max(580px, calc(100vh - 330px)); display: flex; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .bt-root.single .bt-list { display: none; }
 .bt-root.single .bt-side { width: 420px; }
+.bt-root.single .bt-sidefoot { flex-direction: column; justify-content: center; text-align: center; }
+.bt-root.single .bt-sidefoot > .btn { width: 100%; min-height: 48px; }
+.bt-date-note { padding: 10px 14px; color: var(--muted); font-size: 11.5px; border-bottom: 1px solid var(--line); }
+.bt-stored-old { text-decoration: line-through; }
+.date-offset, .bt-now .tz, .bt-after .tz { white-space: nowrap; }
 .bt-now.old { text-decoration: line-through; color: var(--muted); }
 .bt-chgs { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; }
 .kv .bt-chgs { padding: 12px 14px; }

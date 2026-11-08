@@ -13,7 +13,7 @@ const { humanSize } = require("../src/main/lib/util");
 test("EXIF dates parse with and without zones", () => {
   assert.equal(toMs(parseExifDate("2021:07:04 15:30:45-07:00")), Date.UTC(2021, 6, 4, 22, 30, 45));
   assert.equal(toMs(parseExifDate("2021:07:04 15:30:45Z")), Date.UTC(2021, 6, 4, 15, 30, 45));
-  assert.equal(toMs(parseExifDate("2021:07:04 15:30:45")), new Date(2021, 6, 4, 15, 30, 45).getTime());
+  assert.equal(toMs(parseExifDate("2021:07:04 15:30:45")), null, "an unknown zone must never be inferred from the Mac");
   assert.equal(parseExifDate("0000:00:00 00:00:00"), null);
   assert.equal(parseExifDate("not a date"), null);
   const m = makeMoment("2020:01:02 03:04:05", "050", "+08:00");

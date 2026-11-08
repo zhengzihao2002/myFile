@@ -8,11 +8,12 @@ const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
 const { UserError, errText, extOf } = require("../lib/util");
 const { mediaKind, BROWSER_IMAGE, BROWSER_VIDEO, mimeOf, isQuickTime } = require("../lib/media");
-const { bestDate, momentText } = require("../lib/dates");
+const { bestDate, momentText, parseExifDate, toMs } = require("../lib/dates");
 const tz = require("../lib/tz");
+const dateDisplay = require("../lib/date-display");
 
 // QuickTime stores these as one exact moment (UTC) and no zone; ExifTool only shows them in this Mac's zone.
-const ABSOLUTE_TAGS = new Set(["QuickTime:CreateDate", "TrackCreateDate", "MediaCreateDate"]);
+const { ABSOLUTE_TAGS } = dateDisplay;
 
 const IS_MAC = process.platform === "darwin";
 
@@ -79,8 +80,10 @@ function formatDuration(seconds) {
 function takenInfo(taken, movie) {
   const m = taken.moment;
   const exact = movie && ABSOLUTE_TAGS.has(taken.tag) && Number.isFinite(m.ms);
-  if (exact) return { text: tz.instantToWall(m.ms, { offsetMin: 0 }), ms: m.ms, source: taken.source, offset: null, utc: true };
-  return { text: momentText(m), ms: m.ms, source: taken.source, offset: m.offset };
+  const spec = dateDisplay.fileZone(taken, movie);
+  const display = { displayText: spec ? dateDisplay.stamp(m.ms, spec) : momentText(m), zoneLabel: spec ? dateDisplay.zoneLabel(spec, m.ms) : "No offset stored; capture time zone unknown", zoneOrigin: exact ? "UTC timestamp; original local offset is not stored" : m.offset ? "offset stored in the file" : "choose a zone explicitly before comparing instants" };
+  if (exact) return { text: tz.instantToWall(m.ms, { offsetMin: 0 }), ms: m.ms, source: taken.source, offset: null, utc: true, ...display };
+  return { text: momentText(m), ms: m.ms, source: taken.source, offset: m.offset, ...display };
 }
 
 async function inspect(ctx, { path: file }) {
@@ -100,6 +103,12 @@ async function inspect(ctx, { path: file }) {
   ]);
   delete raw.SourceFile;
 
+  const kind = mediaKind(file) || "other";
+  const movie = kind === "video" || isQuickTime(file);
+  const taken = bestDate(raw, { movie });
+  const spec = dateDisplay.fileZone(taken, movie);
+  const displaySpec = spec || { offsetMin: 0 };
+
   // Group every tag for the "All metadata" list.
   const groups = new Map();
   for (const [key, value] of Object.entries(raw)) {
@@ -107,7 +116,11 @@ async function inspect(ctx, { path: file }) {
     const group = colon > 0 ? key.slice(0, colon) : "Other";
     const tag = key.slice(colon + 1);
     if (!groups.has(group)) groups.set(group, []);
-    groups.get(group).push({ tag, label: humanizeTag(tag), value: typeof value === "object" ? JSON.stringify(value) : String(value) });
+    const convertedUtc = /^(QuickTime|Track\d+)$/.test(group) && /^(CreateDate|ModifyDate|TrackCreateDate|TrackModifyDate|MediaCreateDate|MediaModifyDate)$/.test(tag);
+    const parsed = convertedUtc ? parseExifDate(value) : null;
+    const systemMs = group === "System" ? { FileCreateDate: st.birthtimeMs, FileModifyDate: st.mtimeMs, FileAccessDate: st.atimeMs, FileInodeChangeDate: st.ctimeMs }[tag] : undefined;
+    const displayValue = parsed ? dateDisplay.stamp(toMs({ ...parsed, offsetMin: parsed.offsetMin ?? 0 }), { offsetMin: 0 }) : Number.isFinite(systemMs) ? dateDisplay.stamp(systemMs, displaySpec) : typeof value === "object" ? JSON.stringify(value) : String(value);
+    groups.get(group).push({ tag, label: humanizeTag(tag), value: displayValue, ...(convertedUtc ? { note: "Stored UTC timestamp. Original local offset is not stored in this tag." } : {}) });
   }
   const groupList = [...groups.entries()]
     .sort(([a], [b]) => {
@@ -118,9 +131,10 @@ async function inspect(ctx, { path: file }) {
     })
     .map(([group, tags]) => ({ group, label: groupLabel(group), tags }));
 
-  const kind = mediaKind(file) || "other";
-  const movie = kind === "video" || isQuickTime(file);
-  const taken = bestDate(raw, { movie });
+  const fields = {};
+  for (const [key, ms] of Object.entries({ created: st.birthtimeMs, modified: st.mtimeMs, accessed: st.atimeMs })) {
+    fields[key] = { text: dateDisplay.stamp(ms, displaySpec), zoneLabel: dateDisplay.zoneLabel(displaySpec, ms) };
+  }
 
   const lat = Number(num.GPSLatitude);
   const lon = Number(num.GPSLongitude);
@@ -164,6 +178,7 @@ async function inspect(ctx, { path: file }) {
     size: st.size,
     kind,
     times: { createdMs: st.birthtimeMs, modifiedMs: st.mtimeMs, accessedMs: st.atimeMs },
+    dateDisplay: { fields, basis: spec ? movie && ABSOLUTE_TAGS.has(taken.tag) ? "UTC timestamp in the video" : "offset stored in the file" : "UTC for file-system timestamps; capture time zone unknown", zoneLabel: dateDisplay.zoneLabel(displaySpec, st.birthtimeMs) },
     taken: taken ? takenInfo(taken, movie) : null,
     gps,
     summary,

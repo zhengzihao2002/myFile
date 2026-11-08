@@ -348,6 +348,7 @@
         { id: "change", label: "Will change" },
         { id: "same", label: "Already right" },
         { id: "nodate", label: "No date" },
+        { id: "nozone", label: "Choose time zone" },
       ],
       onChange: (id) => table.setFilter(id === "all" ? null : (r) => r.status === id),
     });
@@ -357,10 +358,10 @@
       empty: "Drop photos or videos above.",
       columns: [
         { label: "File", width: "minmax(150px, 0.8fr)", render: fileCell, title: (r) => r.path },
-        { label: "Date inside the file", width: "minmax(200px, 1fr)", render: (r) => (r.exifText ? h("span", { title: r.source }, fmt.exif(r.exifText)) : h("span.faint", "none")) },
-        { label: "Created", width: "minmax(250px, 1.15fr)", render: (r) => (r.status !== "nodate" && r.changeCreated ? MF.DateChange(r.createdMs, r.targetMs) : fmt.date(r.createdMs)) },
-        { label: "Modified", width: "minmax(250px, 1.15fr)", render: (r) => (r.status !== "nodate" && r.changeModified ? MF.DateChange(r.modifiedMs, r.targetMs) : fmt.date(r.modifiedMs)) },
-        { label: "Status", width: "112px", render: (r) => (r.status === "change" ? h("span.badge.accent", "Will change") : r.status === "same" ? h("span.badge.green", icon("check"), "Matches") : h("span.badge.amber", "No date")) },
+        { label: "Date inside the file", width: "minmax(200px, 1fr)", render: (r) => (r.exifText ? h("div", { title: r.source }, fmt.exif(r.exifText)) : h("span.faint", "none")) },
+        { label: "Created (file's zone)", width: "minmax(250px, 1.15fr)", render: (r) => (r.changeCreated ? MF.Change(r.createdText, r.targetText) : r.createdText || h("span.faint", "File time zone unknown")) },
+        { label: "Modified (file's zone)", width: "minmax(250px, 1.15fr)", render: (r) => (r.changeModified ? MF.Change(r.modifiedText, r.targetText) : r.modifiedText || h("span.faint", "File time zone unknown")) },
+        { label: "Status", width: "112px", render: (r) => (r.status === "change" ? h("span.badge.accent", "Will change") : r.status === "same" ? h("span.badge.green", icon("check"), "Matches") : h("span.badge.amber", r.status === "nozone" ? "Choose zone" : "No date")) },
       ],
     });
     const result = h("div");
@@ -410,6 +411,7 @@
         tabs.setCount("change", plan.counts.change);
         tabs.setCount("same", plan.counts.same);
         tabs.setCount("nodate", plan.counts.nodate);
+        tabs.setCount("nozone", plan.counts.nozone);
         replace(right);
       } catch (err) {
         if (err.cancelled) return;
@@ -426,7 +428,7 @@
       replace(
         summary,
         plan
-          ? h("span", h("b", fmt.num(plan.counts.change)), " will change · ", h("b", fmt.num(plan.counts.same)), " already right · ", h("b", fmt.num(plan.counts.nodate)), " without a date")
+          ? h("span", h("b", fmt.num(plan.counts.change)), " will change · ", h("b", fmt.num(plan.counts.same)), " already right · ", h("b", fmt.num(plan.counts.nodate)), " without a date", plan.counts.nozone ? ` · ${plan.counts.nozone} need a time zone: open each file individually to choose it` : "")
           : "Drop photos or videos to begin.",
       );
     }

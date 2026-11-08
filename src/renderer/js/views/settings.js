@@ -2,8 +2,7 @@
 (function () {
   "use strict";
 
-  // Check GitHub for a newer myFile; if there is one, pull it and rebuild the app (what
-  // "git checkout main && git pull && bash install.sh" does by hand).
+  // Check GitHub for a newer myFile, safely sync main and rebuild the app.
   MF.checkForUpdates = async function checkForUpdates() {
     const { h, fmt, api } = MF;
     let res;
@@ -22,10 +21,11 @@
       return;
     }
     const list = h("div", { style: { marginTop: "8px", maxHeight: "180px", overflowY: "auto", textAlign: "left", fontSize: "12.5px" } }, res.commits.slice(0, 12).map((c) => h("div", { style: { padding: "2px 0" } }, `• ${c}`)), res.commits.length > 12 ? h("div.muted", `…and ${fmt.num(res.behind - 12)} more`) : null);
-    const warn = res.dirty.length ? h("div.muted.small", { style: { marginTop: "8px" } }, `Files in the myFile folder were edited by hand (${res.dirty.join(", ")}); the update stops if they are in the way.`) : null;
+    const warn = res.dirty.length ? h("div.muted.small", { style: { marginTop: "8px" } }, `Files in the myFile folder were edited by hand (${res.dirty.join(", ")}); commit or stash those edits before updating.`) : null;
+    const backupNote = res.ahead ? h("div.muted.small", { style: { marginTop: "8px" } }, "This checkout has commits outside the current official version. They will be preserved on a myfile-before-update backup branch before switching to the latest main.") : null;
     const ok = await MF.confirm({
       title: `${fmt.plural(res.behind, "update")} available`,
-      message: h("div", h("div", "myFile will download the update, close, rebuild itself (about a minute, longer if a new Electron is needed) and open again. Nothing you have set up is lost."), list, warn),
+      message: h("div", h("div", "myFile will download the update, close, rebuild itself (about a minute, longer if a new Electron is needed) and open again. Nothing you have set up is lost."), list, warn, backupNote),
       confirm: "Update and restart",
       iconName: "refresh",
     });

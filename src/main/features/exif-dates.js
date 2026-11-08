@@ -9,7 +9,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { checkCancel } = require("../lib/util");
 const { expandMediaPaths } = require("../lib/media");
-const { bestDate, momentText } = require("../lib/dates");
+const { bestDate, momentText, parseOffset } = require("../lib/dates");
+const tz = require("../lib/tz");
 const { applyTimes, canSetBirthtime } = require("../lib/filetimes");
 const { ignoreFor } = require("../lib/ignore");
 const { isMovieFile } = require("./exif-copy");
@@ -34,17 +35,29 @@ async function selfDatePlan(ctx, { paths, options = {} }, task) {
       const tags = bySource.get(file.normalize("NFC")) || {};
       const st = await fs.promises.lstat(file);
       const found = bestDate(tags, { movie: isMovieFile(file) });
+      const absolute = found && isMovieFile(file) && ["QuickTime:CreateDate", "TrackCreateDate", "MediaCreateDate"].includes(found.tag);
+      const offsetMin = absolute ? 0 : found && found.moment.offset ? parseOffset(found.moment.offset) : null;
+      const spec = offsetMin === null ? null : { offsetMin };
+      const inFileZone = (ms) => {
+        if (!spec) return null;
+        const fraction = new Date(ms).getMilliseconds();
+        return `${tz.formatInstant(ms, spec)}${fraction ? `.${String(fraction).padStart(3, "0")}` : ""} ${tz.utcLabel(offsetMin)}`;
+      };
       const row = {
         path: file,
         name: path.basename(file),
         folder: path.dirname(file),
         createdMs: st.birthtimeMs,
         modifiedMs: st.mtimeMs,
-        exifText: found ? momentText(found.moment) : "",
+        exifText: found ? absolute ? inFileZone(found.moment.ms) : momentText(found.moment) : "",
         source: found ? found.source : null,
-        targetMs: found ? found.moment.ms : null,
+        targetMs: found && spec ? found.moment.ms : null,
+        createdText: inFileZone(st.birthtimeMs),
+        modifiedText: inFileZone(st.mtimeMs),
+        targetText: found && spec ? inFileZone(found.moment.ms) : null,
       };
       if (!found) row.status = "nodate";
+      else if (!spec) row.status = "nozone";
       else {
         const tol = opts.toleranceMs;
         const createdOff = opts.created && canSetBirthtime() && Math.abs(st.birthtimeMs - row.targetMs) > tol;
@@ -58,7 +71,7 @@ async function selfDatePlan(ctx, { paths, options = {} }, task) {
     task.progress({ phase: "read", done: Math.min(i + 100, files.length), total: files.length, current: path.basename(chunk[chunk.length - 1].path || chunk[chunk.length - 1]) });
   }
 
-  const counts = { change: 0, same: 0, nodate: 0 };
+  const counts = { change: 0, same: 0, nodate: 0, nozone: 0 };
   for (const r of rows) counts[r.status]++;
   return { rows, counts, skipped, options: opts };
 }

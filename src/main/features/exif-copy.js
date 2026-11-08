@@ -94,7 +94,9 @@ function buildWrites(ref, options, movie) {
       for (const t of ["OffsetTimeOriginal", "OffsetTimeDigitized", "OffsetTime"]) writes.push([t, m.offset || null]);
     } else {
       // QuickTime stores UTC; with QuickTimeUTC=1 ExifTool converts using the zone we give it.
-      const zoned = momentWithZone({ ...m, subsec: "" });
+      // Keys:CreationDate preserves fractions even though the legacy QuickTime
+      // integer timestamps cannot. Keep the reference's complete moment.
+      const zoned = momentWithZone(m);
       for (const t of ["QuickTime:CreateDate", "QuickTime:ModifyDate", "TrackCreateDate", "TrackModifyDate", "MediaCreateDate", "MediaModifyDate", "Keys:CreationDate", "UserData:DateTimeOriginal"]) {
         writes.push([t, zoned]);
       }
@@ -188,6 +190,9 @@ async function copyPlan(ctx, { reference, targets, options = {} }, task) {
   const tol = Math.max(1, ctx.settings.get().toleranceMs || 0);
   const birthOk = canSetBirthtime();
   const refMs = refInfo.date ? refInfo.date.moment.ms : null;
+  if (refInfo.date && !Number.isFinite(refMs) && (opts.fileDates || (opts.date && files.some(file => isMovieFile(file))))) {
+    throw new UserError("The reference date has no stored time zone. Open it in Use each file's own date and choose/save its zone first. To copy only raw photo metadata, turn off file dates and use photo targets.");
+  }
 
   const rows = [];
   for (const file of files) {

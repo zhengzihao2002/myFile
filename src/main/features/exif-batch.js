@@ -34,10 +34,11 @@ const tz = require("../lib/tz");
 const { parseExifDate } = require("../lib/dates");
 const { readInfos, snapshotTags } = require("./exif-copy");
 const { previewFor } = require("./exif-show");
+const dateDisplay = require("../lib/date-display");
 
 const FIELDS = ["exif", "created", "modified"];
 // QuickTime stores these as one exact moment (UTC) and no zone.
-const ABSOLUTE_TAGS = new Set(["QuickTime:CreateDate", "TrackCreateDate", "MediaCreateDate"]);
+const { ABSOLUTE_TAGS } = dateDisplay;
 const MOVIE_DATE_TAGS = ["QuickTime:CreateDate", "QuickTime:ModifyDate", "TrackCreateDate", "TrackModifyDate", "MediaCreateDate", "MediaModifyDate", "Keys:CreationDate", "UserData:DateTimeOriginal"];
 const PHOTO_DATE_TAGS = ["DateTimeOriginal", "CreateDate", "ModifyDate"];
 const PHOTO_SUBSEC_TAGS = ["SubSecTimeOriginal", "SubSecTimeDigitized", "SubSecTime"];
@@ -64,10 +65,9 @@ function resolveTz(file, override, opts) {
   const suggest = zone ? { zone } : null;
   if (override) return { spec: override, kind: "chosen", suggest };
   if (!file.absolute && file.storedOffsetMin !== null && file.storedOffsetMin !== undefined) return { spec: { offsetMin: file.storedOffsetMin }, kind: "stored", suggest };
-  // Nothing in the file says where it was taken. This Mac's zone is only used to show something;
-  // a photo can't be saved until the user picks its zone.
-  // A video's date is one exact moment (UTC), so until a zone is chosen it is shown as UTC.
-  return { spec: file.absolute ? { offsetMin: 0 } : { zone: tz.systemZone() }, kind: "unknown", suggest };
+  // UTC is authoritative for absolute video dates. For an unzoned photo it
+  // is only a placeholder: no instant is inferred until the user chooses.
+  return { spec: { offsetMin: 0 }, kind: "unknown", suggest };
 }
 
 const TZ_KIND_TEXT = {
@@ -95,7 +95,7 @@ function computeOutcome(file, decision, opts) {
   const dec = decision || {};
   const birth = opts.birthSupported;
   const zone = resolveTz(file, tz.parseSpec(dec.tz), opts);
-  const E = exifInstant(file, zone.spec);
+  const E = zone.kind === "unknown" && file.has && !file.absolute ? null : exifInstant(file, zone.spec);
   const before = { exif: E, created: birth ? file.createdMs : null, modified: file.modifiedMs };
   const after = { ...before };
   for (const target of FIELDS) {
@@ -116,7 +116,7 @@ function computeOutcome(file, decision, opts) {
   const sameOffset = !file.absolute && file.storedOffsetMin !== null && file.storedOffsetMin !== undefined && file.storedOffsetMin === offsetMin;
   const writeTz = Boolean(dec.writeTz) && (file.has || changes.exif) && !sameOffset;
   // A photo whose time zone nobody knows can't be judged or saved yet.
-  const needsZone = zone.kind === "unknown" && file.has && !file.absolute;
+  const needsZone = zone.kind === "unknown" && (file.has || changes.exif) && !file.absolute;
   const values = [after.exif, after.created, after.modified].filter((v) => v !== null && v !== undefined);
   const spread = values.length ? Math.max(...values) - Math.min(...values) : 0;
   return {
@@ -136,21 +136,27 @@ function computeOutcome(file, decision, opts) {
 }
 
 /** The tags to write into the file for an outcome (dates and/or time zone). */
+function subsecond(ms) {
+  return dateDisplay.fraction(ms);
+}
+
 function exifWrites(file, out) {
   const writes = [];
   const offsetText = tz.offsetTextAt(out.tz.spec, out.after.exif ?? out.after.modified);
   if (file.movie) {
     if (out.changes.exif && out.newWall) {
-      const zoned = `${out.newWall}${offsetText}`;
+      const fraction = subsecond(out.after.exif);
+      const zoned = `${out.newWall}${fraction ? `.${fraction}` : ""}${offsetText}`;
       for (const t of MOVIE_DATE_TAGS) writes.push([t, zoned]);
     } else if (out.writeTz && out.before.exif !== null) {
-      writes.push(["Keys:CreationDate", `${tz.instantToWall(out.before.exif, out.tz.spec)}${offsetText}`]);
+      const fraction = subsecond(out.before.exif);
+      writes.push(["Keys:CreationDate", `${tz.instantToWall(out.before.exif, out.tz.spec)}${fraction ? `.${fraction}` : ""}${offsetText}`]);
     }
     return writes;
   }
   if (out.changes.exif && out.newWall) {
     for (const t of PHOTO_DATE_TAGS) writes.push([t, out.newWall]);
-    for (const t of PHOTO_SUBSEC_TAGS) writes.push([t, null]);
+    for (const t of PHOTO_SUBSEC_TAGS) writes.push([t, subsecond(out.after.exif) || null]);
   }
   const hadOffset = file.storedOffsetMin !== null && file.storedOffsetMin !== undefined;
   if ((out.changes.exif && (out.writeTz || hadOffset)) || (!out.changes.exif && out.writeTz)) {
@@ -312,31 +318,29 @@ async function reclassify(ctx, { scanId, options = {} }) {
 // ---------------------------------------------------------------------------
 
 function textOf(ms, spec) {
-  return ms === null || ms === undefined ? null : `${tz.formatInstant(ms, spec)} ${tz.utcLabel(tz.offsetAt(spec, ms))}`;
+  return dateDisplay.stamp(ms, spec);
 }
 
 function describeOutcome(raw, out, opts) {
-  const sys = { zone: tz.systemZone() };
-  const ref = out.before.exif ?? out.before.modified;
   const dash = (w) => w.replace(/:/, "-").replace(/:/, "-");
-  // What the file says right now, whatever zone gets chosen: the EXIF date as stored, file dates as Finder shows them.
+  // EXIF is shown as stored; filesystem instants use the file's comparison zone.
   const originalText = (key) => {
     if (key === "exif") {
       if (!raw.has) return null;
       if (raw.absolute) return textOf(raw.absMs, { offsetMin: 0 });
-      return `${dash(raw.wall)}${raw.storedOffsetMin !== null && raw.storedOffsetMin !== undefined ? ` ${tz.utcLabel(raw.storedOffsetMin)}` : ""}`;
+      return `${dash(raw.wall)}${raw.subsec ? `.${raw.subsec}` : ""}${raw.storedOffsetMin !== null && raw.storedOffsetMin !== undefined ? ` ${tz.utcLabel(raw.storedOffsetMin)}` : ""}`;
     }
-    return textOf(out.before[key], sys);
+    return out.needsZone ? null : textOf(out.before[key], out.tz.spec);
   };
   const field = (key) => ({
     originalText: originalText(key),
     before: out.before[key],
     after: out.after[key],
-    changed: out.changes[key],
+    // Choosing a zone can change the stored EXIF date/offset even when its
+    // reinterpreted instant already matches Created. Preview that write too.
+    changed: out.changes[key] || (key === "exif" && out.writeTz && originalText(key) !== textOf(out.after.exif, out.tz.spec)),
     beforeText: textOf(out.before[key], out.tz.spec),
     afterText: textOf(out.after[key], out.tz.spec),
-    beforeMac: textOf(out.before[key], sys),
-    afterMac: textOf(out.after[key], sys),
   });
   return {
     path: raw.path,
@@ -347,8 +351,7 @@ function describeOutcome(raw, out, opts) {
     exifAsStored: raw.has ? (raw.absolute ? "one exact moment (UTC), no time zone" : `${raw.wall}${raw.storedOffsetMin !== null ? ` ${require("../lib/dates").offsetString(raw.storedOffsetMin)}` : " (no time zone)"}`) : null,
     tzOriginal: raw.storedOffsetMin !== null && raw.storedOffsetMin !== undefined && !raw.absolute ? tz.utcLabel(raw.storedOffsetMin) : raw.absolute ? "none (one exact moment, UTC)" : "none stored",
     suggest: out.tz.suggest,
-    tz: { kind: out.tz.kind, label: out.tz.label, why: out.tz.why, offsetMin: out.tz.offsetMin, zone: out.tz.spec.zone || null, writesInFile: raw.movie ? "Keys:CreationDate" : "OffsetTime tags" },
-    mac: { label: tz.describeSpec(sys, ref), same: tz.offsetAt(sys, ref) === out.tz.offsetMin },
+    tz: { kind: out.tz.kind, label: out.tz.label, displayLabel: dateDisplay.zoneLabel(out.tz.spec, out.after.exif ?? out.after.modified), why: out.tz.why, offsetMin: out.tz.offsetMin, zone: out.tz.spec.zone || null, writesInFile: raw.movie ? "Keys:CreationDate" : "OffsetTime tags" },
     gps: raw.gps,
     fields: { exif: field("exif"), created: opts.birthSupported ? field("created") : null, modified: field("modified") },
     newWall: out.newWall,

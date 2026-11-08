@@ -4,7 +4,7 @@
 //
 // myFile is built on this Mac from a git checkout (bash install.sh). Updating
 // means what you would type by hand:
-//   git checkout main && git pull && bash install.sh
+//   fetch origin/main, safely sync main, then bash install.sh
 // The checking and pulling happen here while the app is open. The rebuild
 // replaces myFile.app itself, so it is handed to a small script that waits for
 // the app to quit, runs install.sh (which reopens the app) and tells you if
@@ -50,34 +50,59 @@ async function check(ctx) {
   } catch (err) {
     throw new UserError(err.killed ? "GitHub didn't answer in time. Check your internet connection." : `Couldn't reach GitHub: ${err.message.split("\n")[0]}`);
   }
-  const [current, branch, behind, log, dirty] = await Promise.all([
+  const [current, branch, behind, log, dirty, ahead] = await Promise.all([
     git(root, ["log", "-1", "--format=%h %s"]),
     git(root, ["rev-parse", "--abbrev-ref", "HEAD"]),
     git(root, ["rev-list", "--count", `HEAD..origin/${BRANCH}`]),
     git(root, ["log", "--format=%s", "-n", "30", `HEAD..origin/${BRANCH}`]),
     git(root, ["status", "--porcelain", "--untracked-files=no"]),
+    git(root, ["rev-list", "--count", `origin/${BRANCH}..HEAD`]),
   ]);
   return {
     current,
     branch,
     behind: Number(behind) || 0,
+    ahead: Number(ahead) || 0,
     commits: log ? log.split("\n") : [],
     dirty: dirty ? dirty.split("\n").slice(0, 5) : [],
     canRestart: Boolean(ctx.updater),
   };
 }
 
+async function updateSource(ctx, task) {
+  const root = projectRoot(ctx);
+  try {
+    // Never discard edits to the app's source. Local commits are preserved on
+    // a recovery branch before syncing a rewritten upstream history.
+    const dirty = await git(root, ["status", "--porcelain", "--untracked-files=no"]);
+    if (dirty) throw new UserError("The myFile source has local edits. Commit or stash them before updating; your edits have been left untouched.");
+    task.progress({ label: "Downloading the update…" });
+    await git(root, ["fetch", "origin", BRANCH], 180000);
+    task.progress({ label: "Switching to the main version…" });
+    await git(root, ["checkout", BRANCH]);
+    const target = await git(root, ["rev-parse", `origin/${BRANCH}`]);
+    const local = Number(await git(root, ["rev-list", "--count", `${target}..HEAD`]));
+    let backup = null;
+    if (local) {
+      const head = await git(root, ["rev-parse", "--short", "HEAD"]);
+      backup = `myfile-before-update-${Date.now()}-${head}`;
+      await git(root, ["branch", backup, "HEAD"]);
+      // --keep also refuses to overwrite local/untracked files in the way.
+      await git(root, ["reset", "--keep", target]);
+    } else {
+      await git(root, ["merge", "--ff-only", target]);
+    }
+    return { backup };
+  } catch (err) {
+    if (err instanceof UserError) throw err;
+    throw new UserError(`The update couldn't be downloaded: ${err.message.split("\n").slice(0, 3).join(" ")}`);
+  }
+}
+
 async function apply(ctx, _payload, task) {
   if (!ctx.updater) throw new UserError("Updating only works in the installed myFile app.");
   const root = projectRoot(ctx);
-  task.progress({ label: "Switching to the main version…" });
-  try {
-    await git(root, ["checkout", BRANCH]);
-    task.progress({ label: "Downloading the update…" });
-    await git(root, ["pull", "--ff-only", "origin", BRANCH], 180000);
-  } catch (err) {
-    throw new UserError(`The update couldn't be downloaded: ${err.message.split("\n").slice(0, 3).join(" ")}`);
-  }
+  await updateSource(ctx, task);
   const script = path.join(ctx.runtime.dataDir, "update.sh");
   const log = path.join(root, ".runtime", "update.log");
   fs.writeFileSync(
@@ -100,4 +125,4 @@ osascript -e 'display dialog "myFile could not finish updating. Details are in .
   return { restarting: true };
 }
 
-module.exports = { check, apply };
+module.exports = { check, apply, updateSource };

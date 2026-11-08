@@ -104,9 +104,9 @@
   }
   function pad(n) { return (n < 10 ? "0" : "") + n; }
   function date(ms) {
-    if (!isFinite(ms) || !ms) return "—";
+    if (typeof ms !== "number" || !isFinite(ms)) return "—";
     var d = new Date(ms);
-    return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+    return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate()) + " " + pad(d.getUTCHours()) + ":" + pad(d.getUTCMinutes()) + ":" + pad(d.getUTCSeconds()) + " UTC+00:00";
   }
   function diff(n, fmt) { var t = fmt ? fmt(n) : n.toLocaleString(); return n > 0 ? "+" + t : t; }
   function cls(n) { return n > 0 ? "pos" : n < 0 ? "neg" : ""; }

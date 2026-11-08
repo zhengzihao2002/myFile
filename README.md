@@ -17,7 +17,7 @@
 
 - **Show**: drop photos or videos to see them on the left and everything about them on the right: date taken (with time zone), created and modified dates, camera, lens and exposure, GPS location (one click opens Apple Maps), and every metadata tag, grouped and searchable. HEIC, RAW, TIFF and other formats are previewed too.
 - **Modify › Copy from a reference**: drop one reference file and any number of target files or folders. Their date and time (with sub-seconds and time zone), GPS location and, if you like, camera details are rewritten to match the reference. It works across types: a photo can be the reference for a video and the other way round. The file dates Finder shows can follow along.
-- **Modify › Use each file's own date**: sets every file's created and modified dates to the date stored inside it.
+- **Modify › Use each file's own date**: sets every file's created and modified dates to the date stored inside it. Previews use each file's own stored offset (UTC for UTC video timestamps). Photos without a stored zone are left untouched until you open them individually and choose their zone.
 - **Batch Modify**: drop a nested folder and myFile lists the photos and videos whose **EXIF date, created date and modified date disagree** (files where all three agree are skipped). You go through them one after another with the picture or video beside the dates and decide: make all three follow the EXIF, created or modified date, or change just one. Time zones are respected: an EXIF time of 12:00 in Beijing becomes the same *moment* in the file dates, which a Mac in New York shows 12 to 13 hours earlier, and it matches again when the files go back to China. The zone comes from the file (its stored offset), else from its GPS position (approximate). If a photo has neither, nothing is guessed: it stays in the list until you choose its zone yourself, file by file (Beijing and Eastern are one click), and you can write that zone into its EXIF so it is known from then on. Changing files inside a folder can move the folder's own modified date, so each folder's date is put back and the originals are kept in History. One History entry covers the whole session and **Undo all** restores EXIF, file dates and folder dates.
 
 You always see a table of *current → new* values before anything is written, and changes can be undone from History. The one exception is the advanced *Copy every metadata tag* option, which says so.
@@ -109,7 +109,7 @@ The folder takes about 500 MB after installing (Electron is most of it). The app
 
 ## Good to know
 
-- **Time zones.** A photo's date without a time zone means local time on this Mac, as ExifTool reads it. QuickTime videos store UTC; myFile shows and writes them in the right zone, and fills in Apple's `Keys:CreationDate`, which Photos uses.
+- **Time zones.** Show, Modify and Batch Modify display dates in the file's stored zone, or a zone you explicitly choose. The current Mac's time zone never changes the displayed file dates. QuickTime integer timestamps store a UTC moment, not an original local offset: they display in UTC throughout the app and metadata list. Apple's `Keys:CreationDate` and photo OffsetTime tags preserve genuine stored offsets. Dates show numeric UTC offsets without inferred city names or seasonal labels. Unzoned photo dates are never interpreted using the Mac's zone; choose/save their zone before setting file dates or converting them to video timestamps. File-system-only screens, History and HTML reports use explicit UTC dates. Inspecting dates does not rewrite the file.
 - **Creation dates** (Finder's "Created") are set through macOS's own Foundation framework, so Apple's developer tools (`SetFile`) aren't needed.
 - **Precision.** By default dates within one second of each other count as the same, which is what Finder shows. Settings › Comparing switches to exact matching, or two seconds for FAT32 drives. New dates are always written exactly.
 - **System files** such as `.DS_Store`, `._*` and `Thumbs.db` are ignored everywhere unless you turn on *Include system files*.
@@ -135,4 +135,15 @@ bash scripts/dev.sh --test  # run the test suite
 
 **One file at a time:** in EXIF › Modify › *Use each file's own date*, drop a single photo or video to get the same editor as Batch Modify (preview, dates with time zone, which date wins, Undo) for just that file.
 
-**Updating:** Settings › About › *Check for updates* (or the myFile menu › *Check for Updates…*) fetches the latest version from GitHub, shows what changed, and on your OK pulls it, closes, rebuilds itself with `install.sh` and reopens. It is the same as `git checkout main && git pull && bash install.sh`. If a rebuild fails, a message points to `.runtime/update.log`.
+**Updating:** Settings › About › *Check for updates* (or the myFile menu › *Check for Updates…*) fetches the latest version from GitHub, shows what changed, and on your OK syncs `main`, closes, rebuilds itself with `install.sh` and reopens. If GitHub's history was rewritten, your previous commits are kept on a `myfile-before-update-…` backup branch before adopting the official version. Uncommitted source edits must be committed or stashed first. Settings and history stay in `.runtime/`. If a rebuild fails, a message points to `.runtime/update.log`.
+
+**Recovering an older updater after “Diverging branches can't be fast-forwarded”:** quit myFile, open Terminal in its repository folder and run the following. This preserves your current commits on a backup branch, refuses uncommitted source edits, and rebuilds the app with the repaired updater. If any command fails, stop and resolve that error before continuing.
+
+```sh
+git diff --quiet && git diff --cached --quiet && \
+git fetch origin main && \
+git branch "myfile-before-update-$(date +%Y%m%d-%H%M%S)" HEAD && \
+git checkout main && \
+git reset --keep origin/main && \
+bash install.sh
+```

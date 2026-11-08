@@ -71,7 +71,9 @@ test("copy from a photo to a photo and a video, then undo", async () => {
   assert.equal(p.GPSLongitudeRef, "West");
 
   const [m] = await et.readJson([movie], ["-G1", "-s", "-n", "-Keys:CreationDate", "-QuickTime:CreateDate", "-Composite:GPSLatitude", "-Composite:GPSLongitude"]);
-  assert.equal(m["Keys:CreationDate"], "2021:07:04 15:30:45-07:00");
+  assert.equal(m["Keys:CreationDate"], "2021:07:04 15:30:45.250-07:00");
+  const copied = (await require("../src/main/features/exif-copy").readInfos(ctx, [movie], {})).get(movie);
+  assert.equal(copied.date.moment.ms, Date.UTC(2021, 6, 4, 22, 30, 45, 250), "video keeps the reference's fractional second");
   // QuickTime stores UTC; whatever zone it's shown in, it must be the same instant.
   const { parseExifDate, toMs } = require("../src/main/lib/dates");
   assert.equal(toMs(parseExifDate(m["QuickTime:CreateDate"])), Date.UTC(2021, 6, 4, 22, 30, 45));
@@ -116,19 +118,20 @@ test("set file dates from each file's own EXIF date", async () => {
   fs.writeFileSync(path.join(dir, "notes.txt"), "not media");
   await et.write(a, [["DateTimeOriginal", "2018:05:06 07:08:09"], ["OffsetTimeOriginal", "+02:00"]]);
   await et.write(b, [["CreateDate", "2017:01:02 03:04:05"]]);
+  const originalB = fs.statSync(b).mtimeMs;
 
   const plan = await call("exif.datesPlan", { paths: [dir] });
   assert.equal(plan.rows.length, 3);
-  assert.deepEqual(plan.counts, { change: 2, same: 0, nodate: 1 });
+  assert.deepEqual(plan.counts, { change: 1, same: 0, nodate: 1, nozone: 1 });
+  assert.equal(plan.rows.find(r => r.path === b).targetMs, null, "unknown zone is never inferred from the Mac");
   const rowA = plan.rows.find((r) => r.name === "a.jpg");
   assert.equal(rowA.targetMs, Date.UTC(2018, 4, 6, 5, 8, 9));
   assert.equal(rowA.source, "Date Taken (DateTimeOriginal)");
 
   const res = await call("exif.datesApply", { paths: [dir] });
-  assert.equal(res.changed, 2);
+  assert.equal(res.changed, 1);
   assert.ok(Math.abs(fs.statSync(a).mtimeMs - Date.UTC(2018, 4, 6, 5, 8, 9)) < 2);
-  // No zone: local time of this machine, like ExifTool.
-  assert.ok(Math.abs(fs.statSync(b).mtimeMs - new Date(2017, 0, 2, 3, 4, 5).getTime()) < 2);
+  assert.equal(fs.statSync(b).mtimeMs, originalB, "an unzoned photo stays untouched until the user chooses its zone");
 
   const again = await call("exif.datesPlan", { paths: [dir] });
   assert.equal(again.counts.change, 0, "applying again finds nothing left to change");
@@ -190,4 +193,21 @@ test("a target whose picture was changed can be restored from the reference; the
   assert.equal(trashed.length, before + 1);
   assert.equal(trashed[trashed.length - 1], flipped);
   assert.deepEqual(fs.readdirSync(path.dirname(flipped)).filter((n) => n.startsWith(".myfile-restore")), []);
+});
+
+test("reference copying never invents a Mac time zone for an unzoned photo", async () => {
+  const dir = tmpDir("unknown-ref-zone");
+  const ref = makeJpeg(path.join(dir, "ref.jpg"));
+  const photo = makeJpeg(path.join(dir, "photo.jpg"));
+  const movie = makeMovie(path.join(dir, "video.mov"));
+  await et.write(ref, [["DateTimeOriginal", "2015:12:29 14:28:42"]]);
+  const before = fs.readFileSync(movie);
+  await assert.rejects(call("exif.copyPlan", { reference: ref, targets: [photo] }), /no stored time zone/);
+  await assert.rejects(call("exif.copyApply", { reference: ref, targets: [movie], options: { fileDates: false } }), /no stored time zone/);
+  assert.deepEqual(fs.readFileSync(movie), before);
+  const res = await call("exif.copyApply", { reference: ref, targets: [photo], options: { fileDates: false } });
+  assert.equal(res.ok, 1, "raw photo metadata can still be copied without guessing an instant");
+  const tags = await readTags(et, photo, ["DateTimeOriginal", "OffsetTimeOriginal"]);
+  assert.equal(tags.DateTimeOriginal, "2015:12:29 14:28:42");
+  assert.equal(tags.OffsetTimeOriginal, undefined);
 });

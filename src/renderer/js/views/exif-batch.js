@@ -5,8 +5,8 @@
   const { h, icon, fmt, api, replace } = MF;
 
   const LABEL = { exif: "EXIF date", created: "Created", modified: "Modified" };
-  const NOTE = { exif: "inside the file", created: "what Finder shows", modified: "what Finder shows" };
-  const TZ_KIND = { stored: ["green", "stored in the file"], unknown: ["", "not chosen"], chosen: ["accent", "chosen by you"] };
+  const NOTE = { exif: "inside the file", created: "file system", modified: "file system" };
+  const TZ_KIND = { stored: ["green", "stored"], unknown: ["", "not chosen"], chosen: ["accent", "selected"] };
 
   const dirOf = (rel) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "");
 
@@ -76,13 +76,12 @@
       // A zone chooser with no "automatic" entry: the file's own zone is pre-selected when it has one,
       // otherwise it shows "Choose a zone…" until the user picks.
       function zonePicker({ placeholder, value = "", onChange }) {
-        const sysZone = system.zone;
-        const options = () => [placeholder ? h("option", { value: "", disabled: true }, placeholder) : null, h("option", { value: sysZone }, `This Mac's time zone (${system.label})`), zones.map((z) => h("option", { value: z.id }, z.label)), h("option", { value: "other" }, "Other UTC offset…")];
+        const options = () => [placeholder ? h("option", { value: "", disabled: true }, placeholder) : null, zones.map((z) => h("option", { value: z.id }, z.label)), h("option", { value: "other" }, "Other UTC offset…")];
         const sel = h("select.select", { on: { change: () => { custom.classList.toggle("hidden", sel.value !== "other"); if (sel.value !== "other") fire(); else custom.focus(); } } });
         const custom = h("input.select.hidden", { placeholder: "UTC offset, e.g. +08:00", style: { width: "100%", paddingRight: "10px", marginTop: "6px" }, on: { input: () => fire() } });
         sel.style.width = "100%";
         const el = h("div.bt-zonepick", sel, custom);
-        const known = (v) => v === sysZone || zones.some((z) => z.id === v);
+        const known = (v) => zones.some((z) => z.id === v);
         function fire() {
           onChange(sel.value === "other" ? custom.value.trim() : sel.value);
         }
@@ -365,10 +364,9 @@
 
       const offsetValue = (min) => `${min < 0 ? "-" : "+"}${String(Math.floor(Math.abs(min) / 60)).padStart(2, "0")}:${String(Math.abs(min) % 60).padStart(2, "0")}`;
 
-      // The "now" lines are what the file says today (EXIF as stored, file dates as Finder shows them) and
-      // never move when a zone is picked; what saving would change is shown struck out and replaced.
+      // Compare in the file's zone (or the user's explicit choice), never the
+      // current Mac's zone. An unzoned photo needs a choice before comparison.
       function dateCard(o) {
-        const exifNote = o.tzOriginal.startsWith("none") ? (o.movie ? "one exact moment (UTC), no time zone stored" : "no time zone stored") : "time zone stored in the file";
         const blocks = ["exif", "created", "modified"]
           .filter((k) => o.fields[k])
           .map((k) => {
@@ -378,9 +376,9 @@
             return h(
               `div.bt-field${changed ? ".changed" : ""}`,
               h("div.bt-fh", h("span.bt-fl", LABEL[k]), h("span.bt-fn", NOTE[k])),
-              h(`div.bt-now${changed ? ".old" : ""}`, none ? h("span.faint", "none") : timeEl(f.originalText)),
-              h("div.bt-mac", k === "exif" ? (none ? "" : exifNote) : "on this Mac"),
-              changed ? h("div.bt-after", icon("arrow"), h("span", timeEl(f.afterText)), !o.mac.same ? h("span.bt-mac", ["this Mac: ", timeEl(f.afterMac)]) : null) : null,
+              h(`div.bt-now${changed ? ".old" : ""}`, none ? h("span.faint", "none") : o.needsZone ? (k === "exif" ? timeEl(f.originalText) : h("span.faint", "Choose time zone")) : timeEl(f.beforeText)),
+              k === "exif" && !none && !o.needsZone && f.originalText !== f.beforeText ? h(`div.bt-mac${changed ? ".bt-stored-old" : ""}`, "Stored: ", timeEl(f.originalText)) : null,
+              changed ? h("div.bt-after", icon("arrow"), h("span", timeEl(f.afterText))) : null,
             );
           });
         const verdict = o.needsZone ? h("span.badge.amber", icon("alert"), "Choose a time zone to compare") : o.agree ? h("span.badge.green", icon("check"), "All agree after saving") : h("span.badge.amber", icon("alert"), `Still ${fmt.gap(o.spreadMs)} apart`);
@@ -393,7 +391,7 @@
         if (o.needsZone) return lines;
         for (const k of ["exif", "created", "modified"]) {
           const f = o.fields[k];
-          if (f && f.changed) lines.push({ label: LABEL[k], from: f.originalText || "none", to: f.afterText });
+          if (f && f.changed) lines.push({ label: k === "exif" ? "EXIF date (stored)" : LABEL[k], from: (k === "exif" ? f.originalText : f.beforeText) || "none", to: f.afterText });
         }
         if (o.writeTz) lines.push({ label: "Time zone in the file", from: o.tzOriginal, to: o.tz.label });
         return lines;
@@ -407,30 +405,30 @@
       }
 
       function tzCard(o, d) {
-        const [badgeKind, badgeText] = TZ_KIND[o.tz.kind] || ["", o.tz.kind];
+        const [badgeKind, badgeText] = o.movie && o.tz.kind === "unknown" ? ["", "optional"] : TZ_KIND[o.tz.kind] || ["", o.tz.kind];
         const current = d.tz || (o.tz.kind === "stored" ? o.tz.zone || offsetValue(o.tz.offsetMin) : "");
         const chosen = o.tz.kind === "chosen";
         const picker = zonePicker({ placeholder: current ? null : "Choose a zone…", value: current, onChange: (v) => v && v !== current && setDecision({ tz: v, writeTz: true }) });
         const chip = (label, id) => h(`button.bt-chip${current === id ? ".on" : ""}`, { type: "button", on: { click: () => setDecision({ tz: id, writeTz: true }) } }, label);
-        const note = o.needsZone ? MF.Callout("amber", h("b", "Choose this file's time zone. "), "It stores no time zone, so nothing is assumed. Until you choose, it can't be saved.") : o.tz.kind === "unknown" && o.movie ? h("div.muted.small", "A video stores one exact moment, so its dates can be fixed without a zone. Choosing one is optional: it only adds the offset next to the date in the file.") : null;
+        const note = o.needsZone ? MF.Callout("amber", "Choose a time zone to save.") : null;
         const suggest = o.suggest && !(chosen && d.tz === o.suggest.zone)
           ? h("div.bt-suggest", icon("pin"), h("span", "GPS suggests ", h("b", o.suggest.label), ". Near a border it can be the neighbouring zone."), MF.Button("Use this", { size: "sm", onClick: () => setDecision({ tz: o.suggest.zone, writeTz: true }) }))
           : null;
         const changing = chosen && o.writeTz;
-        const nowText = h("div.bt-tzmain", changing ? h("span", h("span.bt-chg-old", o.tzOriginal), icon("arrow"), h("span.bt-chg-new", o.tz.label)) : o.tz.kind === "stored" ? null : "Not chosen");
+        const stored = o.tzOriginal.startsWith("none") ? (o.movie ? "UTC; local offset not stored" : "Not stored") : o.tzOriginal;
+        const nextOffset = `UTC${offsetValue(o.tz.offsetMin)}`;
+        const nowText = h("div.bt-tzmain", changing ? h("span", h("span.bt-chg-old", stored), icon("arrow"), h("span.bt-chg-new", nextOffset)) : stored);
         return h(
           "div.kv",
           h("div.kvh", icon("clock"), "Time zone", h("div.right", h(`span.badge${badgeKind ? "." + badgeKind : ""}`, badgeText))),
           h(
             "div.bt-tz",
-            changing ? null : h("div.muted.small", "In the file now: ", h("b", o.tzOriginal)),
-            chosen && !changing ? h("div.bt-tzmain", o.tz.label) : nowText,
-            o.sameOffset ? h("div.muted.small", "Files only keep the offset, not a city name, and this file already says the same offset, so nothing changes.") : null,
+            nowText,
             note,
             suggest,
-            h("div.bt-chips", chip("Beijing", "Asia/Shanghai"), chip("Eastern", "America/New_York"), chip("This Mac", system.zone)),
+            h("div.bt-chips", chip("Beijing", "Asia/Shanghai"), chip("Eastern", "America/New_York")),
             picker.el,
-            h("div", { style: { marginTop: "8px", borderTop: "1px solid var(--line)" } }, MF.Option({ title: "Save this time zone in the file", desc: (o.movie ? "Writes Keys:CreationDate with the offset." : "Writes the OffsetTime tags in its EXIF.") + " Without it, this file asks for its zone again next time.", checked: o.writeTz || d.writeTz, onChange: (v) => setDecision({ writeTz: v }) }).el),
+            h("div", { style: { marginTop: "8px", borderTop: "1px solid var(--line)" } }, MF.Option({ title: "Save offset in file", checked: o.writeTz || d.writeTz, onChange: (v) => setDecision({ writeTz: v }) }).el),
           ),
         );
       }
@@ -438,7 +436,6 @@
       function choiceCard(o, d) {
         const exifOn = o.hasExif;
         const make = (value, title, sub, disabled) => h(`button.bt-choice${d.choice === value ? ".on" : ""}`, { type: "button", disabled: Boolean(disabled), on: { click: () => setDecision({ choice: value }) } }, h("div.t", title), h("div.s", sub));
-        const exifText = o.fields.exif.beforeText;
         const oneSel = (key, opts) => {
           const s = h("select.select", opts.map(([v, l]) => h("option", { value: v }, l)));
           s.value = d[key];
@@ -451,9 +448,9 @@
           h("div.kvh", icon("wand"), "What should win?"),
           h(
             "div.bt-choices",
-            make("all-exif", "Everything follows the EXIF date", exifOn ? `Created and Modified become ${exifText}` : "This file has no EXIF date", !exifOn),
-            make("all-modified", "Everything follows Modified", exifOn ? "EXIF and Created become the Modified date" : "Adds an EXIF date and sets Created to the Modified date"),
-            o.fields.created ? make("all-created", "Everything follows Created", exifOn ? "EXIF and Modified become the Created date" : "Adds an EXIF date and sets Modified to the Created date") : null,
+            make("all-exif", "Everything follows the EXIF date", exifOn ? "Sets Created and Modified." : "No EXIF date", !exifOn),
+            make("all-modified", "Everything follows Modified", exifOn ? "Sets EXIF and Created." : "Adds EXIF and sets Created."),
+            o.fields.created ? make("all-created", "Everything follows Created", exifOn ? "Sets EXIF and Modified." : "Adds EXIF and sets Modified.") : null,
             h(`div.bt-choice.one${d.choice === "one" ? ".on" : ""}`, { on: { click: (e) => e.target.tagName !== "SELECT" && setDecision({ choice: "one" }) } }, h("div.t", "Change just one"), h("div.row", { style: { gap: "6px", flexWrap: "wrap", marginTop: "6px" } }, "Set", oneSel("oneTarget", fieldOpts), "to match", oneSel("oneSrc", fieldOpts.filter(([v]) => v !== "exif" || exifOn)))),
           ),
         );
@@ -467,7 +464,8 @@
         const valid = d.choice !== "" && !(d.choice === "one" && d.oneTarget === d.oneSrc) && !o.needsZone;
         const saveBtn = MF.Button(single ? "Save" : "Save & next", { kind: "primary", size: "lg", iconName: "check", disabled: !valid || !o.anything, onClick: () => save(saveBtn) });
         const skipBtn = single ? null : MF.Button("Skip", { kind: "ghost", onClick: skip });
-        replace(sideFoot, skipBtn, h("span.spacer"), o.needsZone ? h("span.muted.small", "Choose the time zone first") : !valid ? h("span.muted.small", "Choose what should win") : !o.anything ? h("span.muted.small", "Nothing would change") : null, saveBtn);
+        const saveHint = o.needsZone ? h("span.muted.small", "Choose the time zone first") : !valid ? h("span.muted.small", "Choose what should win") : !o.anything ? h("span.muted.small", "Nothing would change") : null;
+        replace(sideFoot, skipBtn, single ? null : h("span.spacer"), saveHint, saveBtn);
       }
 
       // ----- saving -----

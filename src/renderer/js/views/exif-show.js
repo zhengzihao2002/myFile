@@ -4,6 +4,10 @@
 
   const { h, icon, fmt, api, replace } = MF;
   const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const timestamp = (text) => {
+    const m = /^(.*)( UTC[+-]\d{2}:\d{2})$/.exec(text || "");
+    return m ? h("span", m[1], h("span.date-offset", m[2])) : text;
+  };
 
   function kvRow(k, v, extra) {
     if (v === null || v === undefined || v === "") return null;
@@ -178,7 +182,10 @@
       function dateCard(r) {
         const t = r.taken;
         const w = t ? parseWall(t.text) : null;
-        const fileRow = (k, v, note) => h("div.kvr", h("div.k", k, h("span.tag-src", note)), h("div.v.selectable", v));
+        const fileRow = (label, key) => {
+          const f = r.dateDisplay.fields[key];
+          return h("div.kvr", h("div.k", label), h("div.v.selectable", timestamp(f.text)));
+        };
         return h(
           "div.kv",
           h("div.kvh", icon("calendar"), "Dates", h("div.right", t ? MF.Button("Use for file dates", { size: "sm", title: "Set this file's Created and Modified dates to its EXIF date", onClick: () => MF.go("exif-modify", { mode: "self", paths: [r.path] }) }) : null)),
@@ -190,16 +197,16 @@
                 h("div.cal", h("div.mo", MONTHS[w.mo - 1]), h("div.dy", String(w.d))),
                 h(
                   "div",
-                  h("div.when", `${w.y}-${String(w.mo).padStart(2, "0")}-${String(w.d).padStart(2, "0")}  ${w.hh}:${w.mm}:${w.ss}`),
-                  h("div.tz", `${t.utc ? "UTC · one exact moment, no time zone stored" : t.offset ? `Time zone ${t.offset}` : "No time zone stored"} · from ${t.source}`),
+                  h("div.when", { title: `${t.source} · ${t.zoneOrigin}` }, timestamp(fmt.exif(t.displayText))),
+                  !t.utc && !t.offset ? h("div.tz", "Time zone not stored") : null,
                 ),
               )
             : h("div.big-date", h("div.muted", "This file has no EXIF date.")),
           // The dates the file system keeps, which Finder shows.
-          h("div.date-label", { style: { color: "var(--muted)", paddingBottom: "6px", borderTop: "1px solid var(--line)", marginTop: "2px" } }, "File dates", h("span.badge", "what Finder shows")),
-          fileRow("Created", fmt.date(r.times.createdMs), "file system"),
-          fileRow("Modified", fmt.date(r.times.modifiedMs), "file system"),
-          fileRow("Accessed", fmt.date(r.times.accessedMs), "file system"),
+          h("div.date-label", { style: { color: "var(--muted)", paddingBottom: "6px", borderTop: "1px solid var(--line)", marginTop: "2px" } }, "File dates"),
+          fileRow("Created", "created"),
+          fileRow("Modified", "modified"),
+          fileRow("Accessed", "accessed"),
         );
       }
 
@@ -249,7 +256,7 @@
                     "div.tagrow",
                     { title: `${g.group}:${t.tag} — click to copy`, on: { click: () => MF.copyText(String(t.value), `${t.label} copied`) } },
                     h("div.k", t.label),
-                    h("div.v", t.value),
+                    h("div.v", t.value, t.note ? h("div.muted.small", t.note) : null),
                   ),
                 ),
               );

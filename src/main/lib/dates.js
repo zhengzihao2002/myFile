@@ -1,8 +1,7 @@
 "use strict";
 
 // EXIF-style dates: "YYYY:MM:DD HH:MM:SS", optionally with a fraction and a
-// zone ("Z" or "+08:00"). A date without a zone means local time on this Mac,
-// which is also how ExifTool interprets it.
+// zone ("Z" or "+08:00"). An unzoned wall clock has no known instant.
 
 const { splitKey } = require("./exiftool");
 
@@ -44,11 +43,11 @@ function fracMs(frac) {
   return Number(`0.${frac}`) * 1000;
 }
 
-/** Epoch milliseconds for a parsed date; local time when it has no zone. */
+/** Epoch milliseconds for a parsed date; null when its zone is unknown. */
 function toMs(p, extraFrac) {
   const frac = fracMs(p.frac || extraFrac || "");
   if (p.offsetMin === null) {
-    return new Date(p.y, p.mo - 1, p.d, p.h, p.mi, p.s).getTime() + frac;
+    return null;
   }
   return Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s) - p.offsetMin * 60000 + frac;
 }
@@ -72,19 +71,11 @@ function wallClock(p) {
 }
 
 /** Wall-clock text of an instant as seen at a given offset (minutes) or local time. */
-function msToWallClock(ms, offsetMin = null) {
+function msToWallClock(ms, offsetMin = 0) {
   const whole = Math.floor(ms / 1000) * 1000;
-  if (offsetMin === null) {
-    const d = new Date(whole);
-    return `${d.getFullYear()}:${pad(d.getMonth() + 1)}:${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  }
+  if (offsetMin === null) throw new Error("Choose an explicit time zone before converting this date.");
   const d = new Date(whole + offsetMin * 60000);
   return `${d.getUTCFullYear()}:${pad(d.getUTCMonth() + 1)}:${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
-}
-
-/** This Mac's UTC offset (minutes) at a given instant. */
-function localOffsetAt(ms) {
-  return -new Date(ms).getTimezoneOffset();
 }
 
 /**
@@ -115,9 +106,10 @@ function momentText(m) {
   return `${m.wall}${m.subsec ? `.${m.subsec}` : ""}${m.offset ? ` ${m.offset}` : ""}`;
 }
 
-/** Full date with zone, as QuickTime/Keys tags want it. Fills in this Mac's zone if unknown. */
+/** Full date with its stored zone, as QuickTime/Keys tags want it. */
 function momentWithZone(m) {
-  const offset = m.offset || offsetString(localOffsetAt(m.ms));
+  if (!m.offset) throw new Error("This date has no stored time zone. Choose its time zone before converting it to a video timestamp.");
+  const offset = m.offset;
   return `${m.wall}${m.subsec ? `.${m.subsec}` : ""}${offset}`;
 }
 
@@ -175,7 +167,6 @@ module.exports = {
   toMs,
   wallClock,
   msToWallClock,
-  localOffsetAt,
   makeMoment,
   momentText,
   momentWithZone,

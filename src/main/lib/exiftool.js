@@ -4,7 +4,7 @@ const { spawn } = require("node:child_process");
 const { CancelledError, UserError } = require("./util");
 
 // Options added to every command: UTF-8 file names, QuickTime dates read and
-// written as real UTC instants (shown in local time with a zone offset), and
+// written as real UTC instants (always displayed in UTC), and
 // files over 2 GB.
 const COMMON_ARGS = ["-charset", "filename=utf8", "-api", "QuickTimeUTC=1", "-api", "LargeFileSupport=1"];
 
@@ -26,7 +26,7 @@ class ExifToolProcess {
   start() {
     const child = spawn(this.perl, [this.script, "-stay_open", "True", "-@", "-"], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, LANG: "en_US.UTF-8", LC_ALL: "en_US.UTF-8" },
+      env: { ...process.env, TZ: "UTC", LANG: "en_US.UTF-8", LC_ALL: "en_US.UTF-8" },
     });
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
