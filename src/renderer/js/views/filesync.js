@@ -117,7 +117,7 @@
         replace(out);
         const targets = tgtDrop.paths.length;
         modeSeg.disable("split", targets < 2, targets < 2 ? "Add at least two targets to split" : "");
-        if (targets < 2 && state.mode === "split") {
+        if (targets > 0 && targets < 2 && state.mode === "split") {
           state.mode = "direct";
           modeSeg.set("direct");
         } else if (targets >= 2 && state.wantSplit && state.mode !== "split") {
@@ -556,6 +556,7 @@
 
       inputsChanged();
       return {
+        clear() { state.children.clear(); state.open.clear(); refDrop.clear(); tgtDrop.clear(); },
         el,
         onShow(params) {
           if (params.mode === "split" || params.mode === "direct") {

@@ -305,6 +305,7 @@ async function scan(ctx, { folder, paths, options = {} }, task) {
   const opts = normalizeOptions({ ...options, tolMs: Math.max(Number(settings.toleranceMs) || 1000, ...volumes.map((v) => Number(v && v.granularityMs) || 0)) }, settings);
 
   const report = throttle((p) => task.progress(p), 150);
+  task.progress({ phase: "find", found: 0, current: selection[0] });
   const { files, skipped } = await expandMediaPaths(selection, {
     ignore: ignoreFor(opts),
     signal: task.signal,
@@ -312,7 +313,7 @@ async function scan(ctx, { folder, paths, options = {} }, task) {
   });
   report.flush();
   const raws = new Map();
-  for (const raw of await readRaws(ctx, files, { signal: task.signal, onProgress: (p) => task.progress({ phase: "read", done: p.done, total: p.total, current: p.current }) })) raws.set(raw.path, raw);
+  for (const raw of await readRaws(ctx, files, { signal: task.signal, onProgress: (p) => task.progress({ ...p, phase: "read" }) })) raws.set(raw.path, raw);
   const roots = new Map(files.map((file) => [file, selectedDirs.find((dir) => within(dir, file)) || path.dirname(file)]));
 
   const id = newId("bat");

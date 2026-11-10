@@ -304,6 +304,7 @@
       }
 
       return {
+        clear() { ++loadToken; thumbs.clear(); drop.clear(); clearAll(); },
         el: root,
         actions: () => [
           MF.Button("Open…", { iconName: "plus", onClick: browse }),

@@ -904,6 +904,7 @@ select.select {
 /* The shared per-file editor embedded inside EXIF > Modify. */
 .bt-embed { height: max(680px, calc(100vh - 330px)); display: flex; container-type: inline-size; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .bt-loading { flex: 1; align-self: center; }
+.bt-loading .busy-card { max-width: calc(100% - 32px); margin: 16px auto; }
 .bt-root.embedded .bt-list { width: 220px; }
 .bt-root.embedded .bt-side { width: 420px; }
 .bt-root.embedded .bt-foot { flex-wrap: wrap; }

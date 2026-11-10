@@ -77,6 +77,7 @@
       }
 
       return {
+        clear() { drop.clear(); },
         el,
         onShow(params) {
           if (params.folder) drop.set([params.folder]);

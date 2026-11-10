@@ -70,6 +70,7 @@
 
       return {
         el,
+        clear() { copyPane.clear(); selfPane.clear(); },
         onShow(params) {
           if (params.mode) setMode(params.mode);
           if (params.reference) copyPane.setReference(params.reference);
@@ -323,6 +324,21 @@
     update();
     return {
       el,
+      clear() {
+        if (job) job.cancel();
+        job = null;
+        plan = null;
+        pictureRun++;
+        pictures = new Map();
+        renderRestore();
+        replace(previewHead.querySelector(".right"));
+        refDrop.clear();
+        tgtDrop.clear();
+        table.setRows([]);
+        replace(refSummary);
+        replace(result);
+        update();
+      },
       setReference(p) {
         refDrop.set([p]);
       },
@@ -354,6 +370,7 @@
     });
     return {
       el: h("div.stack", drop.el, editorBox),
+      clear: () => drop.clear(),
       setPaths: (paths) => drop.set(paths),
     };
   }

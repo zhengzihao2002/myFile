@@ -19,6 +19,8 @@
 - **Modify › Copy from a reference**: drop one reference file and any number of target files or folders. Their date and time (with sub-seconds and time zone), GPS location and, if you like, camera details are rewritten to match the reference. It works across types: a photo can be the reference for a video and the other way round. The file dates Finder shows can follow along.
 - **Modify › Use each file's own date**: drop one file, multiple loose photos and videos, folders, or a mixture. Folders are searched recursively and overlapping selections are listed once. Every file gets the same detailed editor: media preview, precise current → new dates, time zone, “Everything follows” EXIF/Created/Modified, and “Change just one”. Use Previous/Next to review without saving, or Save & next / Skip to work through the queue; each file keeps its own choices. Files whose dates already agree and files without an EXIF date are included. Photos without a stored zone wait for you to choose it in place. Folder dates are preserved, and Undo all restores the whole review session.
 
+The **Clear** button removes loaded files and results while keeping the current tab and options. Folder date scans show progress, files per second and the names in the metadata batch being read.
+
 You always see a table of *current → new* values before anything is written, and changes can be undone from History. The one exception is the advanced *Copy every metadata tag* option, which says so.
 
 ![EXIF Show](docs/screenshots/exif-show.png)

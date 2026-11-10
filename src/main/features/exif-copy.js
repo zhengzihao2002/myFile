@@ -60,6 +60,7 @@ async function readInfos(ctx, files, { signal, onProgress } = {}) {
   for (let i = 0; i < files.length; i += 100) {
     checkCancel(signal);
     const chunk = files.slice(i, i + 100);
+    if (onProgress) onProgress({ done: i, total: files.length, phase: "read", current: path.basename(chunk[0]), active: chunk.map((file) => path.basename(file)) });
     const rows = await ctx.et.readJson(chunk, READ_ARGS, { signal });
     const bySource = new Map(rows.map((r) => [String(r.SourceFile).normalize("NFC"), r]));
     for (const file of chunk) {

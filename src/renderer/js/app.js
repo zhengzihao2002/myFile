@@ -76,15 +76,18 @@
   function headerActions(id, instance) {
     const own = instance.actions ? instance.actions() : null;
     if (NO_CLEAR.has(id)) return own;
-    return [own, MF.Button("Clear", { size: "sm", iconName: "x", title: "Clear this screen, as if myFile had just been opened", onClick: () => MF.clearView(id) })];
+    return [own, MF.Button("Clear", { size: "sm", iconName: "x", title: "Clear loaded files and results; keep tabs and settings", onClick: () => MF.clearView(id) })];
   }
 
   /**
-   * Throws away everything a screen is showing (files, results, choices) and
-   * builds it again, as if the app had just started. Other screens are left alone.
+   * Clear inputs and results in place so the screen keeps its tabs and options.
    */
   MF.clearView = function clearView(id) {
     const old = mounted.get(id);
+    if (old && old.clear) {
+      old.clear();
+      return;
+    }
     if (old && old.onHide) old.onHide();
     mounted.delete(id);
     MF.go(id);

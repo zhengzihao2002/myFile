@@ -324,5 +324,69 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     assert.equal(await page.locator(".drop .item .name").textContent(), "fresh.jpg");
   });
 
+  await t.test("Clear keeps both Modify tabs' options and the active tab while removing inputs", async (t) => {
+    const root = tmpDir("clear-options");
+    const a = await photo(root, "a.jpg");
+    const b = await photo(root, "b.jpg");
+    const page = await pageFor(t);
+    await page.getByRole("radio", { name: "Copy from a reference", exact: true }).click();
+    await page.getByRole("checkbox", { name: "Camera & lens", exact: true }).click();
+    await page.locator(".option").filter({ hasText: "Also set the files' created" }).click();
+    await page.getByRole("radio", { name: "Use each file's own date", exact: true }).click();
+    await dropPaths(page, [a, b]);
+    await currentFile(page, "a.jpg");
+    await page.locator(".bt-gps input").uncheck();
+    await page.getByRole("button", { name: "Clear", exact: true }).click();
+    assert.equal(await page.getByRole("radio", { name: "Use each file's own date", exact: true }).getAttribute("aria-checked"), "true");
+    assert.equal(await page.locator(".drop .item").count(), 0);
+    assert.equal(await page.locator(".bt-embed").isVisible(), false);
+    await dropPaths(page, [a, b]);
+    await currentFile(page, "a.jpg");
+    assert.equal(await page.locator(".bt-gps input").isChecked(), false);
+    await page.getByRole("radio", { name: "Copy from a reference", exact: true }).click();
+    assert.equal(await page.getByRole("checkbox", { name: "Camera & lens", exact: true }).getAttribute("aria-checked"), "true");
+    assert.equal(await page.locator(".option").filter({ hasText: "Also set the files' created" }).locator("input").isChecked(), false);
+    await page.getByRole("button", { name: "Clear", exact: true }).click();
+    assert.equal(await page.getByRole("radio", { name: "Copy from a reference", exact: true }).getAttribute("aria-checked"), "true");
+  });
+
+  await t.test("Clear preserves comparison and folder/sync options across screens", async (t) => {
+    const page = await pageFor(t);
+    for (const [view, option] of [["folder-compare", "Include system files"], ["folder-modify", "Also require identical file sizes"], ["folder-html", "Include EXIF dates"], ["filesync", "Put the clone in a subfolder"]]) {
+      await page.evaluate((view) => MF.go(view), view);
+      const control = page.locator(".option").filter({ hasText: option }).locator("input");
+      const expected = !(await control.isChecked());
+      await page.locator(".option").filter({ hasText: option }).click();
+      if (view === "folder-compare") await page.getByRole("radio", { name: /Size only/ }).click();
+      await page.getByRole("button", { name: "Clear", exact: true }).click();
+      assert.equal(await control.isChecked(), expected, view);
+      if (view === "folder-compare") assert.equal(await page.getByRole("radio", { name: /Size only/ }).getAttribute("aria-checked"), "true");
+    }
+  });
+
+  await t.test("folder scan shows progress, speed and all files in the active metadata batch", async (t) => {
+    const root = tmpDir("scan-progress");
+    await photo(root, "a.jpg");
+    await photo(root, "b.jpg");
+    const page = await pageFor(t);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const original = harness.ctx.et.readJson;
+    harness.ctx.et.readJson = async function (files, ...args) {
+      if (files.some((file) => file.startsWith(root))) await gate;
+      return original.call(this, files, ...args);
+    };
+    t.after(() => { release(); harness.ctx.et.readJson = original; });
+    await dropPaths(page, [root]);
+    await page.locator(".bt-loading .title").filter({ hasText: "Reading dates" }).waitFor();
+    assert.equal(await page.getByRole("progressbar").getAttribute("aria-valuenow"), "0");
+    assert.match(await page.locator(".bt-loading .detail .l").textContent(), /0 of 2 files/);
+    assert.match(await page.locator(".bt-loading .detail .r").textContent(), /speed|files\/s|so far/);
+    assert.deepEqual(await page.locator(".bt-loading .current div").allTextContents(), ["a.jpg", "b.jpg"]);
+    release();
+    await currentFile(page, "a.jpg");
+    assert.equal(await page.locator(".bt-loading").isVisible(), false);
+  });
+
   assert.deepEqual(errors, [], "renderer has no unhandled errors");
 });

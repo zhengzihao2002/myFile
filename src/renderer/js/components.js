@@ -46,6 +46,7 @@
   MF.DropZone = function DropZone(opts) {
     const accept = ACCEPT[opts.accept || "any"];
     let infos = [];
+    let generation = 0;
     const itemsBox = h("div.items");
     const area = h(
       "div.drop-area",
@@ -113,6 +114,7 @@
 
     async function add(paths) {
       if (!paths.length) return;
+      const mine = generation;
       let found;
       try {
         found = await api.run("paths.inspect", { paths });
@@ -120,6 +122,7 @@
         MF.fail(err);
         return;
       }
+      if (mine !== generation) return;
       const good = found.filter((i) => i.exists && accept.test(i));
       const bad = found.filter((i) => !(i.exists && accept.test(i)));
       if (bad.length) {
@@ -188,12 +191,14 @@
         return infos.slice();
       },
       set: (paths) => {
+        generation++;
         infos = [];
         render();
         return add(paths);
       },
       add,
       clear: () => {
+        generation++;
         infos = [];
         render();
         changed();

@@ -243,6 +243,7 @@
       }
 
       return {
+        clear() { refDrop.clear(); tgtDrop.clear(); },
         el,
         onShow(params) {
           if (params.reference) refDrop.set([params.reference]);

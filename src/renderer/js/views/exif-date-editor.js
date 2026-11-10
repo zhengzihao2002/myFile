@@ -601,15 +601,46 @@
           replace(loading, MF.Empty({ iconName: "clock", title: "Finishing the current save…", text: "Your new selection will open next." }));
           return;
         }
-        const job = scanJob = api.start("exif.batchScan", { paths, options: { reviewAll: true, useGps: reviewGps.checked } });
+        const label = h("span", "Finding photos and videos…");
+        const bar = h("div");
+        const progress = h("div.progress.indeterminate", { attrs: { role: "progressbar", "aria-label": "Reading files", "aria-valuemin": "0", "aria-valuemax": "100" } }, bar);
+        const percent = h("span.pct");
+        const count = h("span.l", "Finding files…");
+        const speed = h("span.r", "measuring speed…");
+        const active = h("div.current");
+        const cancel = MF.Button("Cancel", { onClick: () => scanJob && scanJob.cancel() });
+        replace(loading, h("div.busy-card", h("div.title", h("div.spinner"), label), h("div.bar-row", progress, percent), h("div.detail", count, speed), active, h("div.foot", cancel)));
+        let latest = { phase: "find", found: 0 };
+        let phase = "find";
+        let rate = MF.rateTracker("items", "files");
+        function showProgress(p) {
+          if (token !== scanToken) return;
+          if (phase !== p.phase) { phase = p.phase; rate = MF.rateTracker("items", "files"); }
+          latest = p;
+          const reading = p.phase === "read";
+          label.textContent = reading ? "Reading dates…" : "Finding photos and videos…";
+          count.textContent = reading ? `${fmt.num(p.done)} of ${fmt.num(p.total)} files` : `${fmt.num(p.found)} files found`;
+          speed.textContent = rate(reading ? p.done : p.found, reading ? p.total : undefined);
+          const ratio = reading && p.total ? p.done / p.total : null;
+          progress.classList.toggle("indeterminate", ratio === null);
+          percent.textContent = ratio === null ? "" : `${Math.floor(ratio * 100)}%`;
+          if (ratio !== null) { bar.style.width = `${ratio * 100}%`; progress.setAttribute("aria-valuenow", Math.floor(ratio * 100)); }
+          else progress.removeAttribute("aria-valuenow");
+          const names = p.active && p.active.length ? p.active : p.current ? [p.current] : [];
+          active.classList.toggle("multi", names.length > 1);
+          replace(active, names.map((name) => h("div", name)));
+        }
+        const timer = setInterval(() => showProgress(latest), 1000);
+        const job = scanJob = api.start("exif.batchScan", { paths, options: { reviewAll: true, useGps: reviewGps.checked } }, { onProgress: showProgress });
         try {
           const res = await job.promise;
           if (token !== scanToken) return;
           await startReview(res);
         } catch (err) {
-          if (token !== scanToken || err.cancelled) return;
-          replace(loading, MF.Empty({ iconName: "alert", title: "Couldn't read these files", text: err.message }));
+          if (token !== scanToken) return;
+          replace(loading, MF.Empty({ iconName: err.cancelled ? "photo" : "alert", title: err.cancelled ? "Reading cancelled" : "Couldn't read these files", text: err.cancelled ? "No files were changed." : err.message }), MF.Button("Try again", { onClick: () => openPaths(paths) }));
         } finally {
+          clearInterval(timer);
           if (scanJob === job) scanJob = null;
         }
       }

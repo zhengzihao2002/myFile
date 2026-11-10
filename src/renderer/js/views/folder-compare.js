@@ -262,6 +262,7 @@
       };
 
       return {
+        clear() { dropA.clear(); dropB.clear(); },
         el,
         onShow(params) {
           if (params.a) dropA.set([params.a]);
