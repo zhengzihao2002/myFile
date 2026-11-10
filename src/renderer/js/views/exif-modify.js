@@ -25,9 +25,13 @@
             if (!ok) return;
             try {
               const res = await MF.busy("Undoing…", "history.revert", { id: historyId }, (p) => ({ ratio: p.total ? p.done / p.total : null, left: p.phase === "exif" ? "Restoring EXIF" : "Restoring dates" }));
-              MF.toast("Changes undone", { kind: "success", detail: res.failures.length ? `${res.failures.length} item(s) couldn't be restored.` : undefined });
-              replace(box);
-              if (after) after();
+              MF.toast(res.pending ? "Some changes still need Undo" : "Changes undone", { kind: res.pending ? "warn" : "success", detail: res.pending ? `${res.pending} item(s) remain. Reconnect the drive or resolve the error, then retry.` : undefined });
+              if (res.pending) {
+                replace(undo.querySelector("span"), "Retry remaining");
+              } else {
+                replace(box);
+                if (after) after();
+              }
             } catch (err) {
               MF.fail(err);
             }
@@ -53,7 +57,7 @@
           { value: "copy", label: "Copy from a reference", icon: "wand" },
           { value: "self", label: "Use each file's own date", icon: "calendar" },
         ],
-        onChange: (v) => setMode(v),
+        onChange: (v) => { setMode(v); if (v === "self") selfPane.resume(); },
       });
 
       const copyPane = buildCopy();
@@ -62,6 +66,7 @@
       const el = h("div.stack", h("div", modeSeg.el), body);
 
       function setMode(v) {
+        if (v !== "self") selfPane.cancelResume();
         mode = v;
         modeSeg.set(v);
         replace(body, v === "copy" ? copyPane.el : selfPane.el);
@@ -75,6 +80,7 @@
           if (params.mode) setMode(params.mode);
           if (params.reference) copyPane.setReference(params.reference);
           if (params.paths) selfPane.setPaths(params.paths);
+          else if (params.mode === "self" || !params.mode && !params.reference) selfPane.resume(() => setMode("self"));
         },
       };
     },
@@ -308,13 +314,13 @@
         replace(
           result,
           undoCallout(
-            failed.length ? "amber" : "green",
-            h("span", h("b", `${fmt.plural(res.ok, "file")} updated.`), failed.length ? ` ${failed.length} failed: ${failed.slice(0, 3).map((f) => `${f.name} (${f.error})`).join(", ")}` : `${res.restored ? ` ${fmt.plural(res.restored, "picture")} restored from the reference.` : ""} Their metadata now matches the reference.`),
+            failed.length || res.cancelled ? "amber" : "green",
+            h("span", h("b", `${res.cancelled ? "Cancelled. " : ""}${fmt.plural(res.ok, "file")} updated.`), failed.length ? ` ${failed.length} failed: ${failed.slice(0, 3).map((f) => `${f.name} (${f.error})`).join(", ")}` : `${res.restored ? ` ${fmt.plural(res.restored, "picture")} restored from the reference.` : ""} Their metadata now matches the reference.`),
             res.undoable ? res.historyId : null,
             () => refresh(),
           ),
         );
-        MF.toast("Metadata copied", { kind: failed.length ? "warn" : "success", detail: `${res.ok} of ${res.results.length} files updated` });
+        MF.toast(res.cancelled ? res.undoable ? "Copy cancelled; completed changes remain undoable" : "Copy cancelled" : "Metadata copied", { kind: failed.length || res.cancelled ? "warn" : "success", detail: `${res.ok} of ${res.results.length} files updated` });
         refresh();
       } catch (err) {
         MF.fail(err);
@@ -353,6 +359,8 @@
     // Every selection uses the same precise per-file editor. The editor owns
     // the review queue; folders and loose files only change how it is filled.
     const editor = MF.dateEditor();
+    let resumeToken = 0;
+    let pendingRestore = null;
     const editorBox = h("div.bt-embed.hidden", editor.el);
     const drop = MF.DropZone({
       label: "Photos and videos",
@@ -364,13 +372,31 @@
       moreTitle: "Add more files or folders",
       glyph: "calendar",
       onChange: (paths) => {
+        ++resumeToken;
         editorBox.classList.toggle("hidden", !paths.length);
-        editor.openPaths(paths);
+        const pending = pendingRestore;
+        const restore = pending && paths.every((p) => pending.paths.includes(p)) ? pending.state : null;
+        pendingRestore = null;
+        editor.openPaths(paths, { restore });
       },
     });
     return {
       el: h("div.stack", drop.el, editorBox),
-      clear: () => drop.clear(),
+      clear: () => { ++resumeToken; pendingRestore = null; drop.clear(); },
+      cancelResume() { ++resumeToken; },
+      async resume(show) {
+        if (drop.paths.length) return;
+        const token = ++resumeToken;
+        const draft = await editor.loadDraft().catch(() => null);
+        if (!draft || token !== resumeToken || drop.paths.length) return;
+        const pending = pendingRestore = { state: draft.state || {}, paths: draft.paths };
+        if (show) show();
+        try {
+          await drop.set(draft.paths, { isCurrent: () => token === resumeToken && !drop.paths.length });
+        } finally {
+          if (pendingRestore === pending) pendingRestore = null;
+        }
+      },
       setPaths: (paths) => drop.set(paths),
     };
   }

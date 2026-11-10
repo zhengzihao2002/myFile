@@ -65,7 +65,8 @@ function resolveTz(file, override, opts) {
   const zone = opts.useGps && file.gps ? tz.zoneFromGps(file.gps.lat, file.gps.lon) : null;
   const suggest = zone ? { zone } : null;
   if (override) return { spec: override, kind: "chosen", suggest };
-  if (!file.absolute && file.storedOffsetMin !== null && file.storedOffsetMin !== undefined) return { spec: { offsetMin: file.storedOffsetMin }, kind: "stored", suggest };
+  const stored = tz.parseSpec({ offsetMin: file.storedOffsetMin });
+  if (!file.absolute && stored) return { spec: stored, kind: "stored", suggest };
   // UTC is authoritative for absolute video dates. For an unzoned photo it
   // is only a placeholder: no instant is inferred until the user chooses.
   return { spec: { offsetMin: 0 }, kind: "unknown", suggest };
@@ -95,7 +96,11 @@ function exifInstant(file, spec) {
 function computeOutcome(file, decision, opts) {
   const dec = decision || {};
   const birth = opts.birthSupported;
-  const zone = resolveTz(file, tz.parseSpec(dec.tz), opts);
+  const requestedZone = tz.parseSpec(dec.tz);
+  if (dec.tz !== null && dec.tz !== undefined && dec.tz !== "" && !requestedZone) {
+    throw new UserError("Choose a valid city time zone or UTC offset between −14:00 and +14:00, with minutes from 00 to 59 (for example +08:00).");
+  }
+  const zone = resolveTz(file, requestedZone, opts);
   const E = zone.kind === "unknown" && file.has && !file.absolute ? null : exifInstant(file, zone.spec);
   const before = { exif: E, created: birth ? file.createdMs : null, modified: file.modifiedMs };
   const after = { ...before };
@@ -208,15 +213,18 @@ function rawFrom(file, info, st) {
   };
 }
 
-async function readRaws(ctx, files, { signal, onProgress } = {}) {
-  const infos = await readInfos(ctx, files, { signal, onProgress });
+async function readRaws(ctx, files, { signal, onProgress, granular = false, volumes, onError } = {}) {
+  const failed = new Set();
+  const infos = await readInfos(ctx, files, { signal, onProgress, granular, volumes, onError: onError ? (file, err) => { failed.add(file); onError(file, err); } : undefined });
   const out = [];
   for (const file of files) {
     checkCancel(signal);
+    if (failed.has(file)) continue;
     let st;
     try {
       st = await fs.promises.lstat(file);
-    } catch {
+    } catch (err) {
+      if (onError) onError(file, err);
       continue;
     }
     out.push(rawFrom(file, infos.get(file), st));
@@ -236,6 +244,7 @@ function listRow(raw, c, root) {
     name: raw.name,
     movie: raw.movie,
     hasExif: raw.has,
+    agree: c.agree,
     exifMs: out.before.exif,
     createdMs: out.before.created,
     modifiedMs: out.before.modified,
@@ -272,7 +281,7 @@ function within(folder, file) {
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
 
-async function scan(ctx, { folder, paths, scanId, options = {} }, task) {
+async function scan(ctx, { folder, paths, scanId, resume = false, options = {} }, task) {
   const previous = scanId ? ctx.recall(scanId) : null;
   const prior = previous && previous.raws instanceof Map && previous.sources instanceof Map ? previous : null;
   const selection = [];
@@ -334,16 +343,17 @@ async function scan(ctx, { folder, paths, scanId, options = {} }, task) {
     if (cached) raws.set(file, cached);
     else unread.push(file);
   }
-  for (const raw of await readRaws(ctx, unread, { signal: task.signal, onProgress: (p) => task.progress({ ...p, phase: "read" }) })) raws.set(raw.path, raw);
+  for (const raw of await readRaws(ctx, unread, { granular: true, volumes, onError: (file, err) => skipped.push({ path: file, reason: err.message }), signal: task.signal, onProgress: (p) => task.progress({ ...p, phase: "read" }) })) raws.set(raw.path, raw);
   const roots = new Map(files.map((file) => [file, selectedDirs.find((dir) => within(dir, file)) || path.dirname(file)]));
 
   checkCancel(task.signal);
   const id = prior ? prior.id : newId("bat");
   const scanData = prior || { id, historyId: null, folders: new Map(), savedPaths: new Map() };
   Object.assign(scanData, { folder, paths: selection, sources, roots, raws, opts, single });
+  const restoredState = resume ? require("./review-session").restore(ctx, scanData) : null;
   ctx.remember(id, scanData);
   const { rows, counts } = classifyAll(scanData, opts);
-  return { scanId: id, historyId: scanData.historyId, savedPaths: [...(scanData.savedPaths || new Map())], folder, paths: selection, single, reviewAll: opts.reviewAll, rows, counts, skipped, birthSupported: opts.birthSupported, system: { zone: tz.systemZone(), label: tz.describeSpec({ zone: tz.systemZone() }, Date.now()) }, zones: tz.QUICK_ZONES };
+  return { scanId: id, restoredState, historyId: scanData.historyId, savedPaths: [...(scanData.savedPaths || new Map())], folder, paths: selection, single, reviewAll: opts.reviewAll, rows, counts, skipped, birthSupported: opts.birthSupported, system: { zone: tz.systemZone(), label: tz.describeSpec({ zone: tz.systemZone() }, Date.now()) }, zones: tz.QUICK_ZONES };
 }
 
 function recall(ctx, scanId) {
@@ -446,6 +456,12 @@ async function apply(ctx, { scanId, items }, task) {
   const list = (items || []).filter((i) => i && i.path);
   if (!list.length) throw new UserError("Nothing to save.");
   if (list.some((i) => !s.raws.has(i.path))) throw new UserError("That file isn't part of this scan.");
+  const oldHistory = s.historyId && ctx.history.list().find((entry) => entry.id === s.historyId);
+  if (s.historyId && (!oldHistory || oldHistory.reverted || (oldHistory.revertInfo && oldHistory.revertInfo.pending))) {
+    s.historyId = null;
+    s.folders.clear();
+    s.saved = 0;
+  }
   const chainFor = (file) => folderChain(file, s.roots ? s.roots.get(file) : s.folder);
 
   // Remember the folders' dates before touching anything inside them.
@@ -468,92 +484,118 @@ async function apply(ctx, { scanId, items }, task) {
   const undoExif = [];
   const undoTimes = [];
   const touched = [];
+  const attempted = new Set();
   let index = 0;
   const birth = s.opts.birthSupported;
-  for (const item of list) {
-    checkCancel(task.signal);
-    task.progress({ phase: "write", done: index, total: list.length, current: path.basename(item.path) });
-    index++;
-    const result = { path: item.path, name: path.basename(item.path), ok: false };
-    results.push(result);
-    try {
-      // Read the file afresh: it may have changed since the scan.
-      const [raw] = await readRaws(ctx, [item.path], { signal: task.signal });
-      if (!raw) throw new Error("The file is gone.");
-      const out = computeOutcome(raw, item.decision, s.opts);
-      if (out.needsZone) throw new UserError("Choose this file's time zone first: it doesn't say where it was taken and has no GPS.");
-      if (!out.anything) {
-        result.ok = true;
-        result.nothing = true;
-        s.raws.set(item.path, raw);
-        continue;
-      }
-      const writes = exifWrites(raw, out);
-      const st = await fs.promises.lstat(item.path);
-      undoTimes.push({ path: item.path, birthMs: st.birthtimeMs, mtimeMs: st.mtimeMs, atimeMs: st.atimeMs });
-      if (writes.length) {
-        undoExif.push({ path: item.path, tags: await snapshotTags(ctx, item.path, writes, task.signal) });
-        await ctx.et.write(item.path, writes, { signal: task.signal });
-      }
-      // Modified first, created second (setting a modified date earlier than the
-      // created date pulls the created date back). Both are always given, so a date
-      // the user left alone is put back to what it was after the write.
-      const entry = { path: item.path, mtimeMs: out.after.modified };
-      if (birth) entry.birthMs = out.after.created;
-      const res = await applyTimes([entry], { signal: task.signal });
-      if (res.failures.length) throw new Error(res.failures[0].error);
-      touched.push(item.path);
-      // Check what is on disk now.
-      const [fresh] = await readRaws(ctx, [item.path], { signal: task.signal });
-      if (fresh) {
-        s.raws.set(item.path, fresh);
-        result.agree = classify(fresh, s.opts).agree;
-      }
-      result.ok = true;
-    } catch (err) {
-      if (err.code === "CANCELLED") throw err;
-      result.error = err.message;
-    }
-  }
-
-  // Put the folders' modified dates back if writing inside them moved them.
-  const restore = [];
-  for (const dir of dirsInvolved) {
-    const was = s.folders.get(dir);
-    if (!was) continue;
-    try {
-      const st = await fs.promises.stat(dir);
-      if (Math.abs(st.mtimeMs - was.mtimeMs) >= 1) restore.push({ path: dir, mtimeMs: was.mtimeMs, atimeMs: was.atimeMs });
-    } catch {
-      // gone
-    }
-  }
+  let historyId = s.historyId;
+  let cancelled = false;
   let foldersRestored = 0;
-  if (restore.length) {
-    const res = await applyTimes(restore, { signal: task.signal });
-    foldersRestored = restore.length - res.failures.length;
-  }
+  const details = () => ({ folder: s.folder, paths: s.paths, folders: [...s.folders.values()].map((f) => ({ path: f.path, mtimeMs: f.mtimeMs })) });
+  const checkpoint = () => {
+    const folderEntries = [...folderBefore.values()].map((f) => ({ ...f, dir: true }));
+    const undo = { exif: undoExif, times: [...undoTimes, ...folderEntries] };
+    const summary = "Date changes in progress; completed or interrupted changes can be undone";
+    if (!historyId || !ctx.history.append(historyId, { undo, summary, details: details() })) {
+      const title = s.single ? `Fixed ${path.basename([...s.raws.keys()][0] || s.folder)}` : s.opts.reviewAll ? "Modified photo and video dates" : `Batch fix in ${path.basename(s.folder) || s.folder}`;
+      historyId = s.historyId = ctx.history.add({ type: "exif-batch", title, summary, details: details(), undo }).id;
+    }
+  };
+  try {
+    for (const item of list) {
+      checkCancel(task.signal);
+      task.progress({ phase: "write", done: index, total: list.length, current: path.basename(item.path) });
+      index++;
+      const result = { path: item.path, name: path.basename(item.path), ok: false };
+      results.push(result);
+      try {
+        // Read the file afresh: it may have changed since the scan.
+        const [raw] = await readRaws(ctx, [item.path], { signal: task.signal });
+        if (!raw) throw new Error("The file is gone.");
+        const out = computeOutcome(raw, item.decision, s.opts);
+        if (out.needsZone) throw new UserError("Choose this file's time zone first: it doesn't say where it was taken and has no GPS.");
+        if (!out.anything) {
+          result.ok = true;
+          result.nothing = true;
+          s.raws.set(item.path, raw);
+          continue;
+        }
+        const writes = exifWrites(raw, out);
+        const st = await fs.promises.lstat(item.path);
+        undoTimes.push({ path: item.path, birthMs: st.birthtimeMs, mtimeMs: st.mtimeMs, atimeMs: st.atimeMs });
+        if (writes.length) undoExif.push({ path: item.path, tags: await snapshotTags(ctx, item.path, writes, task.signal) });
+        checkpoint();
+        attempted.add(item.path);
+        if (writes.length) await ctx.et.write(item.path, writes, { signal: task.signal });
+        // Modified first, created second (setting a modified date earlier than the
+        // created date pulls the created date back). Both are always given, so a date
+        // the user left alone is put back to what it was after the write.
+        const entry = { path: item.path, mtimeMs: out.after.modified };
+        if (birth) entry.birthMs = out.after.created;
+        const res = await applyTimes([entry], { signal: task.signal });
+        if (res.failures.length) throw new Error(res.failures[0].error);
+        touched.push(item.path);
+        // Check what is on disk now.
+        const [fresh] = await readRaws(ctx, [item.path], { signal: task.signal });
+        if (fresh) {
+          s.raws.set(item.path, fresh);
+          result.agree = classify(fresh, s.opts).agree;
+        }
+        result.ok = true;
+      } catch (err) {
+        result.error = err.code === "CANCELLED" ? "Cancelled; recovery is available in History if writing had started." : err.message;
+        if (err.code === "CANCELLED") throw err;
+      }
+    }
 
+  } catch (err) {
+    if (err.code !== "CANCELLED") throw err;
+    cancelled = true;
+  } finally {
+    // Put the folders' modified dates back if writing inside them moved them.
+    const restore = [];
+    for (const dir of dirsInvolved) {
+      const was = s.folders.get(dir);
+      if (!was) continue;
+      try {
+        const st = await fs.promises.stat(dir);
+        if (Math.abs(st.mtimeMs - was.mtimeMs) >= 1) restore.push({ path: dir, mtimeMs: was.mtimeMs, atimeMs: was.atimeMs });
+      } catch {
+        // gone
+      }
+    }
+    if (restore.length) {
+      const res = await applyTimes(restore);
+      foldersRestored = restore.length - res.failures.length;
+    }
+
+    s.foldersRestored = (s.foldersRestored || 0) + foldersRestored;
+  }
+  if (!attempted.size) for (const dir of folderBefore.keys()) s.folders.delete(dir);
+  if (cancelled || results.some((r) => !r.ok)) {
+    // Verification must not reuse the aborted signal: cache the actual partial
+    // outcome so the review counts and retry preview describe what is on disk.
+    for (const file of attempted) {
+      try {
+        const [fresh] = await readRaws(ctx, [file]);
+        if (fresh) {
+          s.raws.set(file, fresh);
+          const result = results.find((r) => r.path === file);
+          if (result && touched.includes(file)) { result.ok = true; result.agree = classify(fresh, s.opts).agree; }
+        }
+      } catch { /* recovery snapshots remain available even if the drive left */ }
+    }
+  }
   const ok = results.filter((r) => r.ok && !r.nothing).length;
   const failed = results.filter((r) => !r.ok).length;
-  let historyId = s.historyId;
-  if (undoTimes.length || undoExif.length) {
-    const folderEntries = [...folderBefore.values()].map((f) => ({ path: f.path, mtimeMs: f.mtimeMs, atimeMs: f.atimeMs, dir: true }));
-    const undo = { exif: undoExif, times: [...undoTimes, ...folderEntries] };
-    const done = (s.saved = (s.saved || 0) + ok);
-    const summary = `${done} file${done === 1 ? "" : "s"} fixed${foldersRestored || s.foldersRestored ? `; folder dates kept (${(s.foldersRestored = (s.foldersRestored || 0) + foldersRestored)} put back)` : ""}`;
-    const details = { folder: s.folder, paths: s.paths, folders: [...s.folders.values()].map((f) => ({ path: f.path, mtimeMs: f.mtimeMs })) };
-    if (historyId && ctx.history.append(historyId, { undo, summary, details })) {
-      // added to this session's entry
-    } else {
-      const title = s.single ? `Fixed ${path.basename([...s.raws.keys()][0] || s.folder)}` : s.opts.reviewAll ? "Modified photo and video dates" : `Batch fix in ${path.basename(s.folder) || s.folder}`;
-      const entry = ctx.history.add({ type: "exif-batch", title, summary, details, undo });
-      historyId = s.historyId = entry.id;
-    }
-  }
+  s.saved = (s.saved || 0) + ok;
+  if (historyId) ctx.history.append(historyId, {
+    summary: `${s.saved} file${s.saved === 1 ? "" : "s"} fixed${cancelled ? "; cancelled with recovery available" : ""}${s.foldersRestored ? `; folder dates kept (${s.foldersRestored} put back)` : ""}`,
+    details: details(),
+  });
   if (!s.savedPaths) s.savedPaths = new Map();
   for (const r of results) if (r.ok) s.savedPaths.set(r.path, r.agree === false ? "partial" : "saved");
-  return { results, ok, failed, foldersRestored, historyId, undoable: Boolean(historyId) };
+  const { rows, counts } = classifyAll(s, s.opts);
+  return { results, ok, failed, foldersRestored, historyId, undoable: Boolean(historyId), cancelled, rows, counts };
 }
 
 /** The quick time zones and this Mac's own, for the pickers. */

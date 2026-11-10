@@ -112,7 +112,7 @@
       if (chosen && chosen.length) add(chosen);
     }
 
-    async function add(paths) {
+    async function add(paths, isCurrent = () => true) {
       if (!paths.length) return;
       const mine = generation;
       let found;
@@ -122,7 +122,7 @@
         MF.fail(err);
         return;
       }
-      if (mine !== generation) return;
+      if (mine !== generation || !isCurrent()) return;
       const good = found.filter((i) => i.exists && accept.test(i));
       const bad = found.filter((i) => !(i.exists && accept.test(i)));
       if (bad.length) {
@@ -190,11 +190,11 @@
       get infos() {
         return infos.slice();
       },
-      set: (paths) => {
+      set: (paths, { isCurrent } = {}) => {
         generation++;
         infos = [];
         render();
-        return add(paths);
+        return add(paths, isCurrent);
       },
       add,
       clear: () => {

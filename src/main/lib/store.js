@@ -92,7 +92,7 @@ class History {
    */
   append(id, { undo, summary, details }) {
     const entry = this.entries.find((e) => e.id === id);
-    if (!entry) return null;
+    if (!entry || entry.reverted || (entry.revertInfo && entry.revertInfo.pending)) return null;
     if (summary) entry.summary = summary;
     if (details) entry.details = details;
     if (undo) {
@@ -118,6 +118,19 @@ class History {
 
   getUndo(id) {
     return readJson(path.join(this.dir, `${id}.json`), null);
+  }
+
+  // Keep only work that still needs restoring. A failed/cancelled Undo remains
+  // retryable; successful files are not overwritten again on the next attempt.
+  setUndoRemaining(id, undo, info = {}) {
+    const entry = this.entries.find((e) => e.id === id);
+    if (!entry) return null;
+    writeJson(path.join(this.dir, `${id}.json`), undo);
+    entry.reverted = false;
+    entry.undoable = true;
+    entry.revertInfo = { ...info, pending: (undo.exif || []).length + (undo.times || []).length };
+    this._save();
+    return entry;
   }
 
   markReverted(id, info) {

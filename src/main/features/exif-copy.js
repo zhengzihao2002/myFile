@@ -10,7 +10,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { UserError, checkCancel } = require("../lib/util");
+const { UserError, checkCancel, filesAtOnce } = require("../lib/util");
 const { expandMediaPaths, isQuickTime, mediaKind } = require("../lib/media");
 const { bestDate, momentText, momentWithZone } = require("../lib/dates");
 const { applyTimes, canSetBirthtime } = require("../lib/filetimes");
@@ -54,9 +54,58 @@ function interpret(file, tags) {
   return { file, movie, tags, date: bestDate(tags, { movie }), gps, camera };
 }
 
-/** Reads date/GPS/camera info for many files, 100 per ExifTool call. */
-async function readInfos(ctx, files, { signal, onProgress } = {}) {
+/** Reads metadata in batches, or individually for accurate review progress. */
+async function readInfos(ctx, files, { signal, onProgress, granular = false, volumes = [], onError } = {}) {
   const out = new Map();
+  if (granular) {
+    // Only submit as many calls as ExifTool can execute. Files waiting for a
+    // worker are not reported as active, unlike the old 100-file batch list.
+    const poolSize = ctx.et.procs && ctx.et.procs.length ? ctx.et.procs.length : 16;
+    const limit = Math.min(files.length, poolSize, filesAtOnce(ctx.settings.get().parallelFiles, volumes));
+    const active = new Set();
+    let next = 0;
+    let done = 0;
+    let stopped = false;
+    const report = (file) => onProgress && onProgress({ phase: "read", done, total: files.length, current: file ? path.basename(file) : "", active: [...active].map((p) => path.basename(p)) });
+    report();
+    const workers = Array.from({ length: limit }, async () => {
+      while (!stopped) {
+        checkCancel(signal);
+        const file = files[next++];
+        if (!file) return;
+        active.add(file);
+        report(file);
+        try {
+          const rows = await ctx.et.readJson([file], READ_ARGS, { signal });
+          checkCancel(signal);
+          const row = rows.find((r) => String(r.SourceFile).normalize("NFC") === file.normalize("NFC"));
+          if (!row) throw new UserError("ExifTool returned no metadata for this file.");
+          const error = Object.entries(row).find(([key, value]) => /(?:^|:)Error$/.test(key) && value);
+          if (error) throw new UserError(String(error[1]));
+          delete row.SourceFile;
+          out.set(file, interpret(file, row));
+          done++;
+        } catch (err) {
+          if (err.code === "CANCELLED" || !onError) {
+            stopped = true;
+            throw err;
+          }
+          onError(file, err);
+          done++;
+        } finally {
+          active.delete(file);
+          report(file);
+        }
+      }
+    });
+    // Wait for in-flight workers before returning/rejecting, so a finished or
+    // cancelled scan cannot leave readers running behind its final result.
+    const settled = await Promise.allSettled(workers);
+    const failure = settled.find((r) => r.status === "rejected");
+    if (failure) throw failure.reason;
+    checkCancel(signal);
+    return out;
+  }
   for (let i = 0; i < files.length; i += 100) {
     checkCancel(signal);
     const chunk = files.slice(i, i + 100);
@@ -274,44 +323,62 @@ async function copyApply(ctx, { reference, targets, options = {} }, task) {
   const succeeded = [];
   const restored = [];
   let index = 0;
-  for (const row of rows) {
-    checkCancel(task.signal);
-    task.progress({ done: index, total: rows.length, current: row.name, phase: "write" });
-    index++;
-    const writes = buildWrites(refInfo, opts, row.movie);
-    try {
-      if (row.restore) {
-        // The old version goes to the Trash; the target becomes an exact copy of the reference.
-        const tmp = path.join(path.dirname(row.path), `.myfile-restore-${process.pid}-${index}${path.extname(row.path)}`);
-        await copyFileExact(reference, tmp, { signal: task.signal });
-        try {
-          await ctx.trash(row.path);
-        } catch (err) {
-          await fs.promises.rm(tmp, { force: true });
-          throw err;
-        }
-        await fs.promises.rename(tmp, row.path);
-        restored.push(row.path);
-      }
-      const st = await fs.promises.lstat(row.path);
-      undoTimes.push({ path: row.path, birthMs: st.birthtimeMs, mtimeMs: st.mtimeMs, atimeMs: st.atimeMs });
-      if (!opts.all && !row.restore) undoExif.push({ path: row.path, tags: await snapshotTags(ctx, row.path, writes, task.signal) });
-      const extraArgs = opts.all ? ["-tagsFromFile", reference, "-all:all"] : [];
-      // A restored file is already a copy of the reference; only its file dates may still need setting.
-      const res = row.restore ? { warnings: [], updated: 1 } : await ctx.et.write(row.path, writes, { extraArgs, signal: task.signal });
-      results.push({ path: row.path, name: row.name, ok: true, restored: row.restore, warnings: res.warnings, updated: res.updated > 0 });
-      succeeded.push(row.path);
-    } catch (err) {
-      if (err.code === "CANCELLED") throw err;
-      results.push({ path: row.path, name: row.name, ok: false, error: err.message });
+  let cancelled = false;
+  let historyId = null;
+  const details = () => ({ reference, options: opts, restored, files: results.map((r) => ({ path: r.path, ok: r.ok, restored: Boolean(r.restored), error: r.error || null })) });
+  const checkpoint = () => {
+    const undo = opts.all ? null : { exif: undoExif, times: undoTimes.filter((u) => !restored.includes(u.path)) };
+    const summary = "Metadata changes in progress; interrupted changes are recorded";
+    if (!historyId || !ctx.history.append(historyId, { undo, summary, details: details() })) {
+      historyId = ctx.history.add({ type: "exif-copy", title: `Copied metadata from ${path.basename(reference)}`, summary, details: details(), undo }).id;
     }
+  };
+  try {
+    for (const row of rows) {
+      checkCancel(task.signal);
+      task.progress({ done: index, total: rows.length, current: row.name, phase: "write" });
+      index++;
+      const writes = buildWrites(refInfo, opts, row.movie);
+      try {
+        if (row.restore) {
+          // The old version goes to the Trash; the target becomes an exact copy of the reference.
+          const tmp = path.join(path.dirname(row.path), `.myfile-restore-${process.pid}-${index}${path.extname(row.path)}`);
+          await copyFileExact(reference, tmp, { signal: task.signal });
+          checkpoint();
+          try {
+            await ctx.trash(row.path);
+          } catch (err) {
+            await fs.promises.rm(tmp, { force: true });
+            throw err;
+          }
+          await fs.promises.rename(tmp, row.path);
+          restored.push(row.path);
+        }
+        const st = await fs.promises.lstat(row.path);
+        undoTimes.push({ path: row.path, birthMs: st.birthtimeMs, mtimeMs: st.mtimeMs, atimeMs: st.atimeMs });
+        if (!opts.all && !row.restore) undoExif.push({ path: row.path, tags: await snapshotTags(ctx, row.path, writes, task.signal) });
+        checkpoint();
+        const extraArgs = opts.all ? ["-tagsFromFile", reference, "-all:all"] : [];
+        // A restored file is already a copy of the reference; only its file dates may still need setting.
+        const res = row.restore ? { warnings: [], updated: 1 } : await ctx.et.write(row.path, writes, { extraArgs, signal: task.signal });
+        results.push({ path: row.path, name: row.name, ok: true, restored: row.restore, warnings: res.warnings, updated: res.updated > 0 });
+        succeeded.push(row.path);
+      } catch (err) {
+        results.push({ path: row.path, name: row.name, ok: false, error: err.code === "CANCELLED" ? "Cancelled; recovery is available in History if writing had started." : err.message });
+        if (err.code === "CANCELLED") throw err;
+      }
+    }
+
+  } catch (err) {
+    if (err.code !== "CANCELLED") throw err;
+    cancelled = true;
   }
 
   let timeFailures = [];
   if (opts.fileDates && refInfo.date && succeeded.length) {
     task.progress({ done: rows.length, total: rows.length, phase: "dates" });
     const ms = refInfo.date.moment.ms;
-    const res = await applyTimes(succeeded.map((p) => ({ path: p, birthMs: ms, mtimeMs: ms })), { signal: task.signal });
+    const res = await applyTimes(succeeded.map((p) => ({ path: p, birthMs: ms, mtimeMs: ms })));
     timeFailures = res.failures;
     for (const f of res.failures) {
       const r = results.find((x) => x.path === f.path);
@@ -320,21 +387,12 @@ async function copyApply(ctx, { reference, targets, options = {} }, task) {
   }
 
   const ok = results.filter((r) => r.ok).length;
-  const entry = ctx.history.add({
-    type: "exif-copy",
-    title: `Copied metadata from ${path.basename(reference)}`,
-    summary: `${ok} of ${rows.length} file${rows.length === 1 ? "" : "s"} updated${opts.all ? " (all metadata)" : ""}${restored.length ? `; ${restored.length} picture${restored.length === 1 ? "" : "s"} restored from the reference (old versions are in the Trash)` : ""}`,
-    details: { reference, options: opts, restored, files: results.map((r) => ({ path: r.path, ok: r.ok, restored: Boolean(r.restored), error: r.error || null })) },
-    // "All metadata" rewrites tags we can't list in advance, so it can't be undone.
-    undo: opts.all
-      ? null
-      : {
-          exif: undoExif.filter((u) => succeeded.includes(u.path)),
-          // A restored picture's old version is in the Trash; its dates aren't undone here.
-          times: undoTimes.filter((u) => succeeded.includes(u.path) && !restored.includes(u.path)),
-        },
+  if (historyId) ctx.history.append(historyId, {
+    summary: `${ok} of ${rows.length} file${rows.length === 1 ? "" : "s"} updated${cancelled ? "; cancelled with completed changes recorded" : ""}${opts.all ? " (all metadata)" : ""}${restored.length ? `; ${restored.length} picture${restored.length === 1 ? "" : "s"} restored from the reference (old versions are in the Trash)` : ""}`,
+    details: details(),
   });
-  return { results, ok, failed: results.length - ok, restored: restored.length, timeFailures, historyId: entry.id, undoable: entry.undoable };
+  return { results, ok, failed: results.length - ok, restored: restored.length, timeFailures, historyId, undoable: Boolean(historyId && !opts.all && (undoExif.length || undoTimes.some((u) => !restored.includes(u.path)))), cancelled };
+
 }
 
 module.exports = { copyPlan, copyApply, readInfos, buildWrites, gpsText, interpret, isMovieFile, snapshotTags };

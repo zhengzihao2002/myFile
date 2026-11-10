@@ -212,7 +212,7 @@
         if (!ok) return;
         try {
           const res = await MF.busy("Fixing dates…", "folder.modifyApply", { planId: plan.id }, (p) => ({
-            label: p.phase === "exif" ? `Writing EXIF dates in ${p.target}…` : p.phase === "dates" ? `Setting dates in ${p.target}…` : undefined,
+            label: p.phase === "recheck" ? "Rechecking folders before writing…" : p.phase === "exif" ? `Writing EXIF dates in ${p.target}…` : p.phase === "dates" ? `Setting dates in ${p.target}…` : undefined,
             ratio: p.total ? p.done / p.total : null,
             left: p.total ? `${fmt.num(p.done)} of ${fmt.num(p.total)} items` : "",
             current: p.current,
@@ -222,12 +222,12 @@
           plan = null;
           replace(
             out,
-            MF.Section("Done"),
+            MF.Section(res.cancelled ? "Cancelled" : "Done"),
             MF.undoCallout(
-              problems || remaining ? "amber" : "green",
+              problems || remaining || res.cancelled ? "amber" : "green",
               h(
                 "span",
-                h("b", problems || remaining ? "Finished with some problems. " : "All dates now match the reference. "),
+                h("b", res.cancelled ? "Cancelled. Completed changes can be undone. " : problems || remaining ? "Finished with some problems. " : "All dates now match the reference. "),
                 res.targets.map((t) => `${t.name}: ${fmt.num(t.datesSet)} dates set, ${fmt.num(t.exifWritten)} EXIF updates${t.remaining === 0 ? ", verified" : t.remaining ? `, ${t.remaining} still differ` : ""}`).join(" · "),
               ),
               res.historyId,
@@ -235,7 +235,7 @@
             ),
             res.targets.flatMap((t) => [...t.timeFailures, ...t.exifFailed.map((f) => ({ path: f.rel, error: f.error }))]).slice(0, 8).map((f) => MF.Callout("red", h("b", fmt.base(f.path)), ` — ${f.error}`)),
           );
-          MF.toast("Dates fixed", { kind: problems ? "warn" : "success" });
+          MF.toast(res.cancelled ? "Cancelled; completed changes remain undoable" : "Dates fixed", { kind: problems || res.cancelled ? "warn" : "success" });
         } catch (err) {
           MF.fail(err);
         }

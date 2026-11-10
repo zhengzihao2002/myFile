@@ -35,7 +35,7 @@
                 e.reverted
                   ? h("span.badge", icon("undo"), "Undone")
                   : e.undoable
-                    ? MF.Button("Undo", { size: "sm", iconName: "undo", onClick: () => undo(e) })
+                    ? MF.Button(e.revertInfo && e.revertInfo.pending ? "Retry remaining" : "Undo", { size: "sm", iconName: "undo", onClick: () => undo(e) })
                     : h("span.badge", { title: e.type === "filesync" ? "Syncs aren't undone here. Items a sync replaced or removed are in the Trash, unless you chose Delete." : "This change can't be undone" }, "No undo"),
                 MF.Button("", { kind: "ghost", size: "sm", iconName: "x", title: "Remove from history", onClick: () => remove(e) }),
               ),
@@ -49,7 +49,7 @@
         if (!ok) return;
         try {
           const res = await MF.busy("Undoing…", "history.revert", { id: e.id }, (p) => ({ ratio: p.total ? p.done / p.total : null, left: p.phase === "exif" ? "Restoring EXIF" : "Restoring dates", current: p.current }));
-          MF.toast("Undone", { kind: res.failures.length ? "warn" : "success", detail: res.failures.length ? `${res.failures.length} item(s) couldn't be restored` : `${fmt.num(res.restored)} items restored` });
+          MF.toast(res.pending ? "Undo incomplete" : "Undone", { kind: res.pending ? "warn" : "success", detail: res.pending ? `${fmt.num(res.pending)} recovery item(s) remain. Reconnect the drive or fix the reported error, then choose Retry remaining.${res.failures.length ? ` ${res.failures[0].error}` : ""}` : `${fmt.num(res.restored)} items restored` });
         } catch (err) {
           MF.fail(err);
         }

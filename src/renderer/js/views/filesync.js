@@ -29,9 +29,25 @@
         selected: new Set(),
         plan: null,
       };
+      let referenceGeneration = 0;
+      let treeRequest = null;
+      const childRequests = new Map();
+
+      function referenceChanged() {
+        referenceGeneration++;
+        treeRequest = null;
+        childRequests.clear();
+        state.options.assignments = {};
+        state.selected.clear();
+        state.children.clear();
+        state.open.clear();
+        state.tree = null;
+        replace(treeBox);
+        inputsChanged();
+      }
 
       // ----- Inputs ---------------------------------------------------------
-      const refDrop = MF.DropZone({ label: "Reference", step: 1, hint: "folder (or one file)", accept: "any", title: "Drop the reference folder", subtitle: "The original. It is only read, never changed", glyph: "folder", onChange: () => { state.options.assignments = {}; state.selected.clear(); state.tree = null; inputsChanged(); } });
+      const refDrop = MF.DropZone({ label: "Reference", step: 1, hint: "folder (or one file)", accept: "any", title: "Drop the reference folder", subtitle: "The original. It is only read, never changed", glyph: "folder", onChange: referenceChanged });
       const tgtDrop = MF.DropZone({ label: "Targets", step: 2, hint: "one or more folders", accept: "folder", multiple: true, title: "Drop the target folders", subtitle: "Folders or drives that should become clones", moreTitle: "Add another target", glyph: "disk", onChange: () => { state.options.assignments = {}; inputsChanged(); } });
 
       const modeSeg = MF.Segmented({
@@ -50,7 +66,7 @@
           { value: "all", label: "Clone all", icon: "layers" },
           { value: "partial", label: "Choose items", icon: "list" },
         ],
-        onChange: (v) => { state.scope = v; inputsChanged(); if (v === "partial") loadTree(); },
+        onChange: (v) => { state.scope = v; inputsChanged(); },
       });
       const modeHelp = h("div.muted.small", { style: { marginTop: "8px" } });
       const mirrorOpt = MF.Option({ title: "Remove what the reference doesn't have", desc: "Items in a target that aren't in the reference are removed, making it an exact mirror. A drive's own system folders are never touched.", checked: false, onChange: (v) => { state.options.mirror = v; inputsChanged(); } });
@@ -141,10 +157,16 @@
 
       // ----- Partial selection tree ----------------------------------------
       async function loadTree() {
-        if (!refDrop.paths.length) return;
+        const reference = refDrop.paths[0];
+        if (!reference || treeRequest) return;
+        const request = { generation: referenceGeneration, reference };
+        treeRequest = request;
+        const isCurrent = () => request.generation === referenceGeneration && reference === refDrop.paths[0];
         replace(treeBox, h("div.muted.small", { style: { padding: "14px" } }, "Reading the reference…"));
         try {
-          state.tree = await api.run("sync.tree", { reference: refDrop.paths[0], options: { includeAll: state.options.includeAll } });
+          const tree = await api.run("sync.tree", { reference, options: { includeAll: state.options.includeAll } });
+          if (!isCurrent()) return;
+          state.tree = tree;
           if (state.tree.singleFile) {
             replace(treeBox, h("div.muted.small", { style: { padding: "14px" } }, "The reference is a single file, so it is cloned as a whole."));
             return;
@@ -152,7 +174,9 @@
           state.children.set("", state.tree.children);
           drawTree();
         } catch (err) {
-          replace(treeBox, MF.Callout("red", err.message));
+          if (isCurrent()) replace(treeBox, MF.Callout("red", err.message));
+        } finally {
+          if (treeRequest === request) treeRequest = null;
         }
       }
 
@@ -209,18 +233,31 @@
       }
 
       async function expand(node) {
+        const generation = referenceGeneration;
+        const reference = refDrop.paths[0];
+        const isCurrent = () => generation === referenceGeneration && reference === refDrop.paths[0];
         if (state.open.has(node.rel)) state.open.delete(node.rel);
         else {
           state.open.add(node.rel);
           if (!state.children.has(node.rel)) {
             try {
-              state.children.set(node.rel, await api.run("sync.children", { reference: refDrop.paths[0], rel: node.rel, options: { includeAll: state.options.includeAll } }));
+              let request = childRequests.get(node.rel);
+              if (!request) {
+                request = api.run("sync.children", { reference, rel: node.rel, options: { includeAll: state.options.includeAll } });
+                childRequests.set(node.rel, request);
+              }
+              const children = await request;
+              if (!isCurrent()) return;
+              if (childRequests.get(node.rel) === request) childRequests.delete(node.rel);
+              state.children.set(node.rel, children);
             } catch (err) {
+              if (!isCurrent()) return;
+              childRequests.delete(node.rel);
               MF.fail(err);
             }
           }
         }
-        drawTree();
+        if (isCurrent()) drawTree();
       }
 
       function drawTree() {
@@ -556,7 +593,7 @@
 
       inputsChanged();
       return {
-        clear() { state.children.clear(); state.open.clear(); refDrop.clear(); tgtDrop.clear(); },
+        clear() { refDrop.clear(); tgtDrop.clear(); },
         el,
         onShow(params) {
           if (params.mode === "split" || params.mode === "direct") {

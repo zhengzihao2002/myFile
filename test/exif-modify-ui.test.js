@@ -60,6 +60,7 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
   const errors = [];
 
   async function pageFor(t) {
+    require("../src/main/features/review-session").clear(harness.ctx);
     const page = await browser.newPage({ viewport: { width: 1600, height: 1100 } });
     page.setDefaultTimeout(10000);
     page.on("pageerror", (err) => errors.push(err.message));

@@ -22,6 +22,7 @@ const exifBatch = require("./features/exif-batch");
 const folderIndex = require("./features/folder-index");
 const filesync = require("./features/filesync");
 const history = require("./features/history");
+const reviewSession = require("./features/review-session");
 
 function createContext({ runtime, et, trash, fileUrl, appVersion, extraInfo = {}, keepAwake = null, updater = null, volumeInfo = volumes }) {
   filetimes.configure({ tmpDir: runtime.tmpDir });
@@ -144,6 +145,9 @@ function createHandlers(ctx) {
     "exif.copyApply": wrap(exifCopy.copyApply),
     "exif.datesPlan": wrap(exifDates.selfDatePlan),
     "exif.datesApply": wrap(exifDates.selfDateApply),
+    "exif.reviewLoad": wrap(reviewSession.load),
+    "exif.reviewSave": wrap(reviewSession.save),
+    "exif.reviewClear": wrap(reviewSession.clear),
     "exif.batchZones": wrap(exifBatch.zones),
     "exif.batchScan": wrap(exifBatch.scan),
     "exif.batchClassify": wrap(exifBatch.reclassify),

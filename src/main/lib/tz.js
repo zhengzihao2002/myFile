@@ -10,6 +10,7 @@
 
 const tzLookup = require("../vendor/tz-lookup");
 const { parseExifDate, offsetString } = require("./dates");
+const { UserError } = require("./util");
 
 const pad = (n, w = 2) => String(n).padStart(w, "0");
 
@@ -46,6 +47,7 @@ function formatterFor(zone) {
 }
 
 function isValidZone(zone) {
+  if (typeof zone !== "string" || !zone.trim()) return false;
   try {
     formatterFor(zone);
     return true;
@@ -73,13 +75,31 @@ function offsetAt(spec, ms) {
   return zoneOffsetAt(spec.zone, ms);
 }
 
+// EXIF offsets describe whole minutes, with the civil-time range UTC−14 to UTC+14.
+const validOffset = (min) => Number.isInteger(min) && Math.abs(min) <= 14 * 60;
+
 /** The instant at which a wall-clock time shows on the clocks of a zone. */
 function wallToInstant(p, spec, fracMs = 0) {
   const asUtc = Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, p.s);
-  if (spec.offsetMin !== undefined && spec.offsetMin !== null) return asUtc - spec.offsetMin * 60000 + fracMs;
-  const first = asUtc - zoneOffsetAt(spec.zone, asUtc) * 60000;
-  const second = asUtc - zoneOffsetAt(spec.zone, first) * 60000; // across a daylight-saving change
-  return second + fracMs;
+  if (spec.offsetMin !== undefined && spec.offsetMin !== null) {
+    if (!validOffset(spec.offsetMin)) throw new UserError("Choose a valid UTC offset between −14:00 and +14:00, with minutes from 00 to 59.");
+    return asUtc - spec.offsetMin * 60000 + fracMs;
+  }
+  if (!isValidZone(spec.zone)) throw new UserError("Choose a valid time zone or fixed UTC offset.");
+  // A local wall clock can identify zero instants (spring gap), one instant,
+  // or two instants (fall overlap). Find and round-trip candidates instead of
+  // silently normalizing a missing hour or choosing one occurrence of two.
+  // Sampling both sides also covers half-hour changes and date-line skips.
+  const offsets = new Set();
+  for (let hours = -48; hours <= 48; hours += 6) offsets.add(zoneOffsetAt(spec.zone, asUtc + hours * 3600000));
+  const candidates = [];
+  for (const offset of offsets) {
+    const instant = asUtc - offset * 60000;
+    if (instant + zoneOffsetAt(spec.zone, instant) * 60000 === asUtc) candidates.push(instant);
+  }
+  if (candidates.length === 0) throw new UserError(`This local time does not exist in ${spec.zone} because the clock moved forward. Choose the correct fixed UTC offset (for example −05:00) instead of a city time zone.`);
+  if (candidates.length > 1) throw new UserError(`This local time occurs twice in ${spec.zone} because the clock moved back. Choose the intended fixed UTC offset (for example −04:00 or −05:00) instead of a city time zone.`);
+  return candidates[0] + fracMs;
 }
 
 /** "YYYY:MM:DD HH:MM:SS" for an instant on a zone's clocks. */
@@ -130,13 +150,19 @@ function zoneFromGps(lat, lon) {
 function parseSpec(value) {
   if (!value) return null;
   if (typeof value === "object") {
+    if (value.offsetMin !== undefined && value.offsetMin !== null && !validOffset(value.offsetMin)) return null;
     if (value.zone && isValidZone(value.zone)) return { zone: value.zone };
-    if (Number.isFinite(value.offsetMin)) return { offsetMin: Math.round(value.offsetMin) };
+    if (value.zone) return null;
+    if (validOffset(value.offsetMin)) return { offsetMin: value.offsetMin };
     return null;
   }
   const text = String(value).trim();
   const m = /^(?:UTC)?([+-])(\d{1,2})(?::?(\d{2}))?$/i.exec(text);
-  if (m) return { offsetMin: (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] || 0)) };
+  if (m) {
+    const minutes = Number(m[3] || 0);
+    const offsetMin = (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + minutes);
+    return minutes < 60 && validOffset(offsetMin) ? { offsetMin } : null;
+  }
   return isValidZone(text) ? { zone: text } : null;
 }
 

@@ -32,6 +32,27 @@
       let scanJob = null;
       let saving = null;
       let pendingPaths = null;
+      let search = "";
+      let filter = "all";
+      const failures = new Map();
+      let persistChain = Promise.resolve();
+      let persistTimer = null;
+      function stateOfReview() {
+        return { decisions: [...decisions], status: [...status], failures: [...failures], current: current && current.path, tab, search, filter, useGps: reviewGps.checked };
+      }
+      const sessionNote = h("span.muted.small", "Review auto-saves");
+      function persistNow() {
+        clearTimeout(persistTimer);
+        if (!scan) return;
+        const payload = { scanId: scan.scanId, state: stateOfReview() };
+        persistChain = persistChain.catch(() => {}).then(() => api.run("exif.reviewSave", payload)).then(() => { sessionNote.textContent = "Session saved"; }).catch((err) => { sessionNote.textContent = "Session save failed"; MF.toast("Couldn't save the review session", { kind: "warn", detail: err.message }); });
+        return persistChain;
+      }
+      function persistSoon() { clearTimeout(persistTimer); persistTimer = setTimeout(persistNow, 150); }
+      function clearDraft() {
+        clearTimeout(persistTimer);
+        persistChain = persistChain.catch(() => {}).then(() => api.run("exif.reviewClear")).catch(MF.fail);
+      }
 
       // ----- review screen -----
       const countsLine = h("div.bt-counts");
@@ -41,7 +62,9 @@
       const zoneLine = h("div.bt-zoneline");
       const bulkHost = h("div.bt-bulk");
       const footHost = h("div.bt-foot");
-      const listCol = h("div.bt-list", h("div.bt-listhead", countsLine, zoneLine, tabsHost), listHost, bulkHost, footHost);
+      const searchInput = h("input.select", { type: "search", placeholder: "Search names or paths…", attrs: { "aria-label": "Search review files" }, on: { input: () => { search = searchInput.value; applyFilter(); } } });
+      const filterInput = h("select.select", { attrs: { "aria-label": "Filter review files" }, on: { change: () => { filter = filterInput.value; applyFilter(); } } }, [["all", "All files"], ["photos", "Photos"], ["videos", "Videos"], ["unknown", "Unknown time zone"], ["no-date", "Missing EXIF date"], ["matching", "Matching dates"], ["failed", "Failed saves"]].map(([value, label]) => h("option", { value }, label)));
+      const listCol = h("div.bt-list", h("div.bt-listhead", countsLine, zoneLine, h("div.bt-tools", searchInput, filterInput), tabsHost), listHost, bulkHost, footHost);
 
       const stageName = h("div.fname");
       const stageCount = h("span.muted.small.num");
@@ -58,7 +81,8 @@
       const sideFoot = h("div.bt-sidefoot");
       const side = h("div.panel-side.bt-side", sideScroll, sideFoot);
       const review = h("div.bt-review.hidden", listCol, stage, side);
-      const root = h("div.bt-root.embedded.single", review);
+      const warnings = h("details.bt-warnings.hidden");
+      const root = h("div.bt-root.embedded.single", warnings, review);
       const loading = h("div.bt-loading.hidden");
       root.appendChild(loading);
       let banner = null; // single file: the note with Undo after a save
@@ -104,9 +128,9 @@
 
       // ----- scan -----
       const reviewGps = { checked: true };
-      async function startReview(res) {
+      async function startReview(res, restoredState) {
         const continuing = scan && scan.scanId === res.scanId;
-        const selectedPath = continuing && current ? current.path : null;
+        let selectedPath = continuing && current ? current.path : null;
         ++outcomeToken;
         ++mediaToken;
         scan = res;
@@ -120,12 +144,27 @@
           status.clear();
           decisions.clear();
           savedPaths.clear();
+          failures.clear();
           tab = "todo";
         }
         historyId = res.historyId || null;
         for (const [file, state] of res.savedPaths || []) {
           savedPaths.add(file);
           if (!status.has(file)) status.set(file, state);
+        }
+        const restored = res.restoredState || restoredState;
+        if (restored) {
+          for (const [p, d] of restored.decisions || []) decisions.set(p, d);
+          status.clear();
+          for (const [p, value] of restored.status || []) status.set(p, value);
+          for (const [p, value] of restored.failures || []) failures.set(p, value);
+          tab = ["todo", "saved", "skipped"].includes(restored.tab) ? restored.tab : "todo";
+          search = restored.search || "";
+          filter = restored.filter || "all";
+          searchInput.value = search;
+          filterInput.value = filter;
+          reviewGps.checked = restored.useGps !== false;
+          selectedPath = restored.current;
         }
         current = null;
         outcome = null;
@@ -136,12 +175,14 @@
         for (const file of decisions.keys()) if (!rows.has(file)) decisions.delete(file);
         review.classList.remove("hidden");
         loading.classList.add("hidden");
+        renderWarnings(res.skipped || []);
         renderLeft();
         MF.refreshHeader();
         const list = allRows().filter(inTab);
         const first = list.find((r) => r.path === selectedPath) || list[0];
         if (first) await select(first);
         else renderEmpty();
+        persistNow();
       }
 
       async function reclassify() {
@@ -165,8 +206,26 @@
 
       // ----- left column -----
       const allRows = () => [...rows.values()].sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
-      const todoRows = () => allRows().filter((r) => !status.has(r.path));
-      const inTab = (r) => (tab === "todo" ? !status.has(r.path) : tab === "saved" ? status.get(r.path) === "saved" || status.get(r.path) === "partial" : status.get(r.path) === "skipped");
+      const isTodo = (r) => !status.has(r.path) || status.get(r.path) === "failed";
+      const matchesFilter = (r) => (!search || `${r.name} ${r.path}`.toLowerCase().includes(search.toLowerCase())) && (filter === "all" || filter === "photos" && !r.movie || filter === "videos" && r.movie || filter === "unknown" && r.needsZone || filter === "no-date" && !r.hasExif || filter === "matching" && r.agree || filter === "failed" && status.get(r.path) === "failed");
+      const todoRows = () => allRows().filter(isTodo).filter(matchesFilter);
+      const inTab = (r) => matchesFilter(r) && (tab === "todo" ? isTodo(r) : tab === "saved" ? status.get(r.path) === "saved" || status.get(r.path) === "partial" : status.get(r.path) === "skipped");
+      function applyFilter() {
+        if (!scan) return;
+        refreshCounts();
+        selectTabRow();
+        persistSoon();
+      }
+      function renderWarnings(skipped) {
+        warnings.classList.toggle("hidden", !skipped.length);
+        replace(warnings, h("summary", `${fmt.plural(skipped.length, "location")} couldn't be read or was skipped`), skipped.map((r) => h("div", h("b", r.path), " — ", r.reason || r.error || "Couldn't read this item")));
+      }
+      function acceptFresh(res) {
+        if (!res.rows || !res.counts) return;
+        scan.counts = res.counts;
+        for (const r of res.rows) rows.set(r.path, r);
+        if (current && rows.has(current.path)) current = rows.get(current.path);
+      }
 
       function itemCell(row) {
         const st = status.get(row.path);
@@ -178,14 +237,14 @@
         return h(
           `div.bt-item${current && current.path === row.path ? ".on" : ""}`,
           icon(row.movie ? "video" : "photo"),
-          h("div.bt-txt", h("div.bt-name", row.name), h("div.bt-sub", st ? (st === "saved" ? "Saved" : st === "partial" ? "Saved, still differs" : "Skipped") : row.needsZone ? (row.suggestZone ? "Time zone: choose it (GPS suggests one)" : "Time zone unknown: choose it") : `${fmt.gap(row.spreadMs)} apart${bits.length ? ` · ${bits.join(" · ")}` : ""}`), dirOf(row.rel) ? h("div.bt-dir", dirOf(row.rel)) : null),
+          h("div.bt-txt", h("div.bt-name", row.name), h("div.bt-sub", st ? (st === "saved" ? "Saved" : st === "partial" ? "Saved, still differs" : st === "failed" ? `Save failed: ${failures.get(row.path) || "Try again"}` : "Skipped") : row.needsZone ? (row.suggestZone ? "Time zone: choose it (GPS suggests one)" : "Time zone unknown: choose it") : `${fmt.gap(row.spreadMs)} apart${bits.length ? ` · ${bits.join(" · ")}` : ""}`), dirOf(row.rel) ? h("div.bt-dir", dirOf(row.rel)) : null),
         );
       }
 
       function renderLeft() {
         const c = scan.counts;
         const todo = todoRows().length;
-        const saved = [...status.values()].filter((s) => s !== "skipped").length;
+        const saved = [...status.values()].filter((s) => (s === "saved" || s === "partial")).length;
         const skipped = [...status.values()].filter((s) => s === "skipped").length;
         replace(
           countsLine,
@@ -200,6 +259,7 @@
           tab = id;
           table.setRows(allRows().filter(inTab));
           selectTabRow();
+          persistSoon();
         } });
         replace(tabsHost, tabs.el);
         table = MF.VirtualTable({ fill: true, rowHeight: 58, columns: [{ label: "Files", width: "1fr", render: itemCell }], rows: allRows().filter(inTab), empty: tab === "todo" ? "Nothing left to decide." : "Nothing here yet.", onRowClick: (row) => select(row) });
@@ -211,7 +271,7 @@
       function refreshCounts() {
         const todo = todoRows().length;
         tabs.setCount("todo", todo);
-        tabs.setCount("saved", [...status.values()].filter((s) => s !== "skipped").length);
+        tabs.setCount("saved", [...status.values()].filter((s) => (s === "saved" || s === "partial")).length);
         tabs.setCount("skipped", [...status.values()].filter((s) => s === "skipped").length);
         replace(countsLine, h("span", h("b", fmt.num(todo)), " to decide"), h("span.muted", ` · ${fmt.num(scan.counts.agree)} already agree`), scan.counts.noExif ? h("span.muted", ` · ${fmt.num(scan.counts.noExif)} without an EXIF date`) : null, scan.counts.needsZone ? h("span.muted", ` · ${fmt.num(scan.counts.needsZone)} need a time zone`) : null);
         table.setRows(allRows().filter(inTab));
@@ -230,14 +290,14 @@
         if (!todo) return replace(bulkHost, gpsBox, waiting ? h("div.muted.small", `${fmt.plural(waiting, "file")} need${waiting === 1 ? "s" : ""} a time zone chosen one by one.`) : null);
         const sel = h("select.select", h("option", { value: "exif" }, "Everything follows EXIF"), h("option", { value: "modified" }, "Everything follows Modified"), h("option", { value: "created", disabled: !scan.birthSupported }, "Everything follows Created"));
         const btn = MF.Button(`Apply to all ${fmt.num(todo)} remaining`, { size: "sm", iconName: "wand", onClick: () => bulk(sel.value, btn) });
-        replace(bulkHost, h("div.muted.small", { style: { marginBottom: "6px" } }, `Same choice for every file whose time zone is known${waiting ? ` (${fmt.num(waiting)} more need a zone chosen one by one)` : ""}:`), gpsBox, h("div.row", { style: { gap: "8px", flexWrap: "wrap" } }, sel, btn));
+        replace(bulkHost, h("div.muted.small", { style: { marginBottom: "6px" } }, `Uses the common choice below for the visible remaining files. This overrides their unsaved date and time-zone choices. Files whose time zone is known${waiting ? ` (${fmt.num(waiting)} more need a zone chosen one by one)` : ""}:`), gpsBox, h("div.row", { style: { gap: "8px", flexWrap: "wrap" } }, sel, btn));
       }
 
       function renderFoot() {
-        if (!savedPaths.size) return replace(footHost);
         replace(
           footHost,
-          h("span.muted.small", `${fmt.num(savedPaths.size)} saved`),
+          savedPaths.size ? h("span.muted.small", `${fmt.num(savedPaths.size)} saved`) : sessionNote,
+          MF.Button("Save session", { size: "sm", onClick: async () => { await persistNow(); } }),
           h("span.spacer"),
           historyId ? MF.Button("Undo all", { size: "sm", iconName: "undo", onClick: undoAll }) : null,
           MF.Button("Scan again", { size: "sm", iconName: "refresh", onClick: () => runScanAgain() }),
@@ -255,8 +315,9 @@
         if (!ok) return;
         try {
           const res = await MF.busy("Undoing…", "history.revert", { id: historyId }, (p) => ({ ratio: p.total ? p.done / p.total : null, left: p.phase === "exif" ? "Restoring EXIF" : "Restoring dates" }));
-          MF.toast("Everything put back", { kind: "success", detail: res.failures.length ? `${res.failures.length} item(s) couldn't be restored.` : undefined });
-          await runScanAgain();
+          MF.toast(res.pending ? "Undo needs another attempt" : "Everything put back", { kind: res.pending ? "warn" : "success", detail: res.pending ? `${res.pending} item(s) remain. Retry Undo all or open History.` : undefined });
+          if (!res.pending) await runScanAgain();
+          persistNow();
         } catch (err) {
           MF.fail(err);
         }
@@ -274,6 +335,7 @@
       async function select(row) {
         if (saving) return;
         current = row;
+        persistNow();
         outcome = null;
         replace(sideScroll, h("div.muted.small", "Reading dates…"));
         replace(sideFoot);
@@ -289,6 +351,7 @@
         nextBtn.disabled = i < 0 || i >= list.length - 1;
         showMedia(row);
         await refreshOutcome();
+        persistSoon();
       }
 
       function renderEmpty() {
@@ -301,7 +364,8 @@
         stageName.textContent = "";
         stageCount.textContent = "";
         const emptySelection = !scan.counts.total;
-        const title = emptySelection ? "No photos or videos found" : tab !== "todo" ? "Nothing here yet" : scan.counts.review ? "All decided" : "Everything agrees";
+        const filteredOut = (search || filter !== "all") && !allRows().filter(inTab).length;
+        const title = filteredOut ? "No files match this filter" : emptySelection ? "No photos or videos found" : tab !== "todo" ? "Nothing here yet" : scan.counts.review ? "All decided" : "Everything agrees";
         const text = emptySelection ? "Choose photos, videos or a folder containing them." : tab !== "todo" ? "Choose another tab to keep reviewing files." : scan.counts.review ? "Every file has been saved or skipped. You can revisit files in Saved or Skipped, or scan again." : `All ${fmt.num(scan.counts.total)} photos and videos already have the same EXIF, created and modified dates.`;
         replace(stageView, MF.Empty({ iconName: emptySelection ? "photo" : "check", title, text }));
         replace(sideScroll, h("div.row", { style: { gap: "8px", flexWrap: "wrap" } }, MF.Button("Scan again", { iconName: "refresh", onClick: runScanAgain }), null));
@@ -359,14 +423,19 @@
           renderPanel();
         } catch (err) {
           if (token !== outcomeToken) return;
-          replace(sideScroll, MF.Callout("red", err.message));
-          replace(sideFoot);
+          if (!sideScroll.querySelector(".bt-zonepick")) {
+            const base = await api.run("exif.batchOutcome", { scanId: scan.scanId, path: current.path, decision: {} }).catch(() => null);
+            if (token !== outcomeToken) return;
+            if (base) { outcome = base; renderPanel(); outcome = null; }
+          }
+          replace(sideFoot, MF.Callout("red", err.message));
         }
       }
 
       function setDecision(patch) {
         if (!current || saving) return;
         Object.assign(decisionFor(current), patch);
+        persistNow();
         refreshOutcome();
       }
 
@@ -495,6 +564,7 @@
         const next = list.find((r) => r.rel > current.rel) || list[0];
         if (next) select(next);
         else renderEmpty();
+        persistNow();
       }
 
       async function save(button) {
@@ -509,9 +579,16 @@
           const res = await MF.withSpinner(button, () => api.run("exif.batchApply", { scanId, items: [{ path: row.path, decision }] }));
           if (token !== scanToken) return;
           if (saving === operation) saving = null;
+          acceptFresh(res);
           const r = res.results[0];
-          if (!r.ok) {
-            MF.toast("Couldn't save this file", { kind: "warn", detail: r.error });
+          if (!r || !r.ok) {
+            status.set(row.path, "failed");
+            failures.set(row.path, r ? r.error : "Save cancelled");
+            historyId = res.historyId || historyId;
+            refreshCounts();
+            await select(rows.get(row.path) || row);
+            persistNow();
+            MF.toast(res.cancelled ? res.historyId ? "Save cancelled; recovery is available in History" : "Save cancelled" : "Couldn't save this file", { kind: "warn", detail: r && r.error });
             return;
           }
           historyId = res.historyId || historyId;
@@ -525,6 +602,7 @@
             renderPanel();
             return;
           }
+          failures.delete(row.path);
           savedPaths.add(row.path);
           status.set(row.path, r.agree === false ? "partial" : "saved");
           MF.toast(`Saved ${row.name}`, { kind: r.agree === false ? "warn" : "success", timeout: 9000, detail: lines.map((l) => `${l.label}: ${l.from} → ${l.to}`).join("\n") || undefined });
@@ -561,7 +639,7 @@
         const word = { exif: "the EXIF date", modified: "the Modified date", created: "the Created date" }[policy];
         const ok = await MF.confirm({
           title: `Fix ${fmt.plural(targets.length, "file")}?`,
-          message: `For each file, the other dates are set to ${word}${policy === "exif" ? "" : " (the EXIF date is written into the file)"}, read in each file's own time zone. ${skippedNoExif ? `${fmt.plural(skippedNoExif, "file")} without an EXIF date stay in the list. ` : ""}${waitingZone ? `${waitingZone === 1 ? "1 file whose time zone is unknown stays" : `${fmt.num(waitingZone)} files whose time zone is unknown stay`} in the list for you to do one by one. ` : ""}Folder dates are kept, and everything can be undone from History.`,
+          message: `This common policy overrides unsaved per-file date and time-zone choices for the visible remaining files. For each file, the other dates are set to ${word}${policy === "exif" ? "" : " (the EXIF date is written into the file)"}, read in each file's own time zone. ${skippedNoExif ? `${fmt.plural(skippedNoExif, "file")} without an EXIF date stay in the list. ` : ""}${waitingZone ? `${waitingZone === 1 ? "1 file whose time zone is unknown stays" : `${fmt.num(waitingZone)} files whose time zone is unknown stay`} in the list for you to do one by one. ` : ""}Folder dates are kept, and everything can be undone from History.`,
           confirm: "Fix them",
           iconName: "wand",
         });
@@ -571,15 +649,18 @@
           const rate = MF.rateTracker("items", "files");
           const res = await MF.busy("Fixing dates…", "exif.batchApply", { scanId: scan.scanId, items }, (p) => ({ label: "Fixing dates…", ratio: p.total ? p.done / p.total : null, left: `${fmt.num(p.done || 0)} of ${fmt.num(p.total || 0)} files`, right: rate(p.done || 0, p.total), current: p.current }));
           historyId = res.historyId || historyId;
+          acceptFresh(res);
           let failed = 0;
           for (const r of res.results) {
             if (r.ok) {
               status.set(r.path, r.agree === false ? "partial" : "saved");
+              failures.delete(r.path);
               savedPaths.add(r.path);
-            } else failed++;
+            } else { failed++; status.set(r.path, "failed"); failures.set(r.path, r.error); }
           }
           refreshCounts();
-          MF.toast(`${fmt.plural(res.ok, "file")} fixed`, { kind: failed ? "warn" : "success", detail: failed ? `${failed} couldn't be saved and are still in the list.` : res.foldersRestored ? `${fmt.plural(res.foldersRestored, "folder")} kept their original dates.` : undefined });
+          MF.toast(`${res.cancelled ? "Cancelled. " : ""}${fmt.plural(res.ok, "file")} fixed`, { kind: failed || res.cancelled ? "warn" : "success", detail: failed ? `${failed} couldn't be saved and are still in the list.` : res.foldersRestored ? `${fmt.plural(res.foldersRestored, "folder")} kept their original dates.` : undefined });
+          persistNow();
           const next = todoRows()[0];
           if (next) select(next);
           else renderEmpty();
@@ -590,7 +671,7 @@
 
       // All Modify inputs use this queue, including already-agreeing files and
       // files without dates. Only discovery differs from the one-file editor.
-      async function openPaths(paths, { fresh = false } = {}) {
+      async function openPaths(paths, { fresh = false, restore = null } = {}) {
         const previous = !fresh && paths.length ? scan : null;
         const token = ++scanToken;
         ++outcomeToken;
@@ -606,7 +687,7 @@
         replace(sideScroll);
         replace(sideFoot);
         pendingPaths = saving ? paths.slice() : null;
-        if (!paths.length) return;
+        if (!paths.length) { warnings.classList.add("hidden"); clearDraft(); return; }
         replace(loading, MF.Empty({ iconName: "search", title: "Reading photos and videos…", text: "Finding files and reading their dates. Nothing is changed." }));
         if (saving) {
           replace(loading, MF.Empty({ iconName: "clock", title: "Finishing the current save…", text: "Your new selection will open next." }));
@@ -642,11 +723,11 @@
           replace(active, names.map((name) => h("div", name)));
         }
         const timer = setInterval(() => showProgress(latest), 1000);
-        const job = scanJob = api.start("exif.batchScan", { paths, scanId: previous ? previous.scanId : undefined, options: { reviewAll: true, useGps: reviewGps.checked } }, { onProgress: showProgress });
+        const job = scanJob = api.start("exif.batchScan", { paths, scanId: previous ? previous.scanId : undefined, resume: Boolean(restore), options: { reviewAll: true, useGps: reviewGps.checked } }, { onProgress: showProgress });
         try {
           const res = await job.promise;
           if (token !== scanToken) return;
-          await startReview(res);
+          await startReview(res, restore);
         } catch (err) {
           if (token !== scanToken) return;
           replace(loading, MF.Empty({ iconName: err.cancelled ? "photo" : "alert", title: err.cancelled ? "Reading cancelled" : "Couldn't read these files", text: err.cancelled ? "No files were changed." : err.message }), MF.Button("Try again", { onClick: () => openPaths(paths) }));
@@ -658,7 +739,7 @@
 
       const openFile = (file) => openPaths([file], { fresh: true });
 
-      return { el: root, openFile, openPaths };
+      return { el: root, openFile, openPaths, loadDraft: () => api.run("exif.reviewLoad") };
     }
   }
 

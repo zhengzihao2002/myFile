@@ -844,6 +844,14 @@ select.select {
 /* ------------------------------------------------------------------ */
 
 .bt-root { display: flex; width: 100%; height: 100%; min-height: 0; }
+.bt-root.embedded { flex-direction: column; }
+.bt-tools { display: flex; flex-direction: column; gap: 5px; }
+.bt-tools .select { width: 100%; min-width: 0; }
+.bt-tools input.select, .bt-zonepick input.select { height: 30px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--surface); font-size: 12.5px; outline: none; }
+.bt-tools input.select:focus, .bt-zonepick input.select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.bt-warnings { flex: none; max-height: 130px; overflow: auto; padding: 10px 14px; background: var(--surface-2); color: var(--amber); border-bottom: 1px solid var(--line); font-size: 12px; overflow-wrap: anywhere; }
+.bt-warnings summary { cursor: pointer; font-weight: 650; }
+.bt-warnings > div { margin-top: 6px; }
 .bt-review { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .bt-list { width: 300px; flex: none; display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-right: 1px solid var(--line); }
 .bt-listhead { padding: 12px 12px 0; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line); }
@@ -902,7 +910,7 @@ select.select {
 }
 
 /* The shared per-file editor embedded inside EXIF > Modify. */
-.bt-embed { height: max(680px, calc(100vh - 330px)); display: flex; container-type: inline-size; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+.bt-embed { height: max(780px, calc(100vh - 330px)); display: flex; container-type: inline-size; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .bt-loading { flex: 1; align-self: center; }
 .bt-loading .busy-card { max-width: calc(100% - 32px); margin: 16px auto; }
 .bt-root.embedded .bt-list { width: 220px; }
@@ -915,7 +923,7 @@ select.select {
 .bt-root.single .bt-sidefoot { flex-direction: column; justify-content: center; text-align: center; }
 .bt-root.single .bt-sidefoot > .btn { width: 100%; min-height: 48px; }
 @container (max-width: 1050px) {
-  .bt-root.embedded:not(.single) .bt-review { display: grid; grid-template-columns: minmax(0, 1fr) 420px; grid-template-rows: 260px minmax(0, 1fr); }
+  .bt-root.embedded:not(.single) .bt-review { display: grid; grid-template-columns: minmax(0, 1fr) 420px; grid-template-rows: 330px minmax(0, 1fr); }
   .bt-root.embedded:not(.single) .bt-list { grid-column: 1 / -1; width: auto; display: grid; grid-template-columns: minmax(220px, 1fr) minmax(220px, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; border-right: 0; border-bottom: 1px solid var(--line); }
   .bt-root.embedded .bt-listhead { grid-column: 1; grid-row: 1; }
   .bt-root.embedded .bt-listhost { grid-column: 2; grid-row: 1 / -1; border-left: 1px solid var(--line); }
@@ -923,7 +931,7 @@ select.select {
   .bt-root.embedded .bt-foot { grid-column: 1; grid-row: 3; flex-wrap: wrap; }
 }
 @container (max-width: 760px) {
-  .bt-root.embedded:not(.single) .bt-review { grid-template-columns: minmax(0, 1fr) 360px; }
+  .bt-root.embedded:not(.single) .bt-review { grid-template-columns: minmax(0, 1fr) 360px; grid-template-rows: 390px minmax(0, 1fr); }
   .bt-root.embedded .bt-side { width: 360px; }
 }
 .bt-date-note { padding: 10px 14px; color: var(--muted); font-size: 11.5px; border-bottom: 1px solid var(--line); }

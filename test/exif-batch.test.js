@@ -544,3 +544,16 @@ test("selection edits reuse folder membership and metadata while preserving the 
   assert.deepEqual(reads, [inside], "an explicit fresh scan rereads the folder");
   assert.ok(walks.includes(root));
 });
+
+
+test("saved decisions return fresh summary counts and list row classifications", async () => {
+  const file = await photo(tmpDir("fresh-summary"), "unknown.jpg", [["DateTimeOriginal", "2023:05:01 12:00:00"]], "2020-01-01T00:00:00Z");
+  const scan = await call("exif.batchScan", { paths: [file], options: { reviewAll: true, birthSupported: false } });
+  assert.equal(scan.counts.needsZone, 1);
+  const saved = await call("exif.batchApply", { scanId: scan.scanId, items: [{ path: file, decision: { tz: "+08:00", writeTz: true, set: { modified: "exif" } } }] });
+  assert.equal(saved.ok, 1);
+  assert.equal(saved.counts.needsZone || 0, 0);
+  assert.equal(saved.counts.agree, 1);
+  assert.equal(saved.rows[0].needsZone, false);
+  assert.equal(saved.rows[0].agree, true);
+});
