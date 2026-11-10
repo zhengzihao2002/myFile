@@ -118,6 +118,9 @@ test("main.js sets up paths, IPC, menu and quits cleanly; preload exposes the AP
     assert.equal(win.opts.webPreferences.sandbox, true);
     assert.equal(win.opts.webPreferences.nodeIntegration, false);
     assert.ok(electron.menu.some((m) => m.label === "Go"));
+    const goMenu = electron.menu.find((m) => m.label === "Go").submenu;
+    assert.ok(goMenu.some((m) => m.label === "EXIF · Modify"));
+    assert.ok(!goMenu.some((m) => /Batch Modify/.test(m.label || "")), "folder review is part of Modify, with no separate menu or shortcut");
 
     // IPC: a task runs, unknown senders are refused.
     const task = electron.handlers.get("myfile:task");

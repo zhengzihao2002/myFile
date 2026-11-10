@@ -1,4 +1,4 @@
-/* EXIF › Batch Modify */
+/* Shared detailed date editor for EXIF › Modify */
 (function () {
   "use strict";
 
@@ -10,12 +10,12 @@
 
   const dirOf = (rel) => (rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "");
 
-  // single = the editor for one file used inside EXIF › Modify (no folder, no list).
-  function build(single) {
+  // One editor and one decision model for a file, loose files and folders.
+  function build() {
     {
+      let single = true;
       // ----- state -----
       let zones = [];
-      let system = { zone: "", label: "" };
       let scan = null; // { scanId, folder, counts, birthSupported }
       const rows = new Map(); // path -> row
       const status = new Map(); // path -> "saved" | "partial" | "skipped"
@@ -27,22 +27,11 @@
       let mediaToken = 0;
       let table = null;
       let historyId = null;
-      let savedCount = 0;
-
-      // ----- setup screen -----
-      const drop = MF.DropZone({
-        accept: "folder",
-        title: "Drop the folder to check",
-        subtitle: "Subfolders are included. Only photos and videos are looked at.",
-        glyph: "folder",
-        onChange: () => (scanBtn.disabled = !drop.paths.length),
-      });
-      const setupGps = MF.Option({ title: "Suggest the time zone from GPS", desc: "For files that store no time zone but do have a GPS position, the zone for that place is offered as a suggestion. It is never applied for you: you click it, or choose another, file by file.", checked: true, onChange: () => {} });
-      const scanBtn = MF.Button("Scan", { kind: "primary", size: "lg", iconName: "search", disabled: true, onClick: runScan });
-      const setup = h(
-        "div.bt-setup",
-        h("div.bt-setup-in", drop.el, h("div.card.card-pad", { style: { paddingTop: "4px", paddingBottom: "4px" } }, setupGps.el), h("div.card.card-pad", h("div", { style: { fontWeight: "650", marginBottom: "6px" } }, "How it works"), h("ol.bt-how", h("li", "It looks at every photo and video in the folder (and below) and compares the EXIF date, the created date and the modified date. Files where all three agree are skipped."), h("li", "For each file that doesn't agree you see the picture and decide which date wins, or change just one. A time zone is taken into account, so a photo taken in Beijing and fixed on a Mac in New York still agrees when it goes back to China. If a photo says nothing about its time zone and has no GPS, you pick the zone for that file yourself."), h("li", "Folders keep their own modified dates: writing inside a folder can move it, so it is put back and the original is saved in History.")), h("div.row", { style: { marginTop: "14px", justifyContent: "flex-end" } }, scanBtn))),
-      );
+      const savedPaths = new Set();
+      let scanToken = 0;
+      let scanJob = null;
+      let saving = null;
+      let pendingPaths = null;
 
       // ----- review screen -----
       const countsLine = h("div.bt-counts");
@@ -68,8 +57,10 @@
       const sideScroll = h("div.scroll");
       const sideFoot = h("div.bt-sidefoot");
       const side = h("div.panel-side.bt-side", sideScroll, sideFoot);
-      const review = h(`div.bt-review${single ? "" : ".hidden"}`, listCol, stage, side);
-      const root = h(`div.bt-root${single ? ".single" : ""}`, single ? null : setup, review);
+      const review = h("div.bt-review.hidden", listCol, stage, side);
+      const root = h("div.bt-root.embedded.single", review);
+      const loading = h("div.bt-loading.hidden");
+      root.appendChild(loading);
       let banner = null; // single file: the note with Undo after a save
 
       // ----- helpers -----
@@ -112,37 +103,29 @@
       const options = () => ({ useGps: reviewGps.checked });
 
       // ----- scan -----
-      async function runScan() {
-        const folder = drop.paths[0];
-        if (!folder) return;
-        try {
-          const res = await MF.busy("Looking at photos and videos…", "exif.batchScan", { folder, options: { useGps: setupGps.checked } }, (p) => {
-            if (p.phase === "find") return { label: "Finding photos and videos…", left: `${fmt.num(p.found)} found` };
-            return { label: "Reading dates…", ratio: p.total ? p.done / p.total : null, left: `${fmt.num(p.done)} of ${fmt.num(p.total)} files` };
-          });
-          startReview(res);
-        } catch (err) {
-          if (!err.cancelled) MF.fail(err);
-        }
-      }
-
-      let reviewGps = null;
+      const reviewGps = { checked: true };
       async function startReview(res) {
+        ++outcomeToken;
+        ++mediaToken;
         scan = res;
+        single = res.single;
+        root.classList.toggle("single", single);
+        prevBtn.classList.toggle("hidden", single);
+        nextBtn.classList.toggle("hidden", single);
         zones = res.zones;
-        system = res.system;
         rows.clear();
         status.clear();
         decisions.clear();
         historyId = null;
-        savedCount = 0;
+        savedPaths.clear();
         current = null;
         outcome = null;
+        banner = null;
+        bulkGps = false;
         for (const r of res.rows) rows.set(r.path, r);
-        reviewGps = single && reviewGps ? reviewGps : { checked: setupGps.checked };
         tab = "todo";
-        setup.classList.add("hidden");
         review.classList.remove("hidden");
+        loading.classList.add("hidden");
         renderLeft();
         MF.refreshHeader();
         const first = todoRows()[0];
@@ -151,16 +134,19 @@
       }
 
       async function reclassify() {
-        if (!scan) return;
+        if (!scan || saving) return;
+        const session = scan;
+        const token = scanToken;
         try {
           const res = await api.run("exif.batchClassify", { scanId: scan.scanId, options: options() });
+          if (token !== scanToken || session !== scan) return;
           const fresh = new Map(res.rows.map((r) => [r.path, r]));
           for (const [p, r] of [...rows]) if (!status.has(p) && !fresh.has(p)) rows.delete(p);
           for (const [p, r] of fresh) if (!status.has(p)) rows.set(p, r);
           scan.counts = res.counts;
           renderLeft();
-          if (current && rows.has(current.path)) current = rows.get(current.path);
-          if (current) refreshOutcome();
+          if (current && rows.has(current.path)) await select(rows.get(current.path));
+          else selectTabRow();
         } catch (err) {
           MF.fail(err);
         }
@@ -198,7 +184,12 @@
           c.needsZone ? h("span.muted", ` · ${fmt.num(c.needsZone)} need a time zone`) : null,
         );
         replace(zoneLine, h("label.bt-gps", h("input", { type: "checkbox", checked: reviewGps.checked, on: { change: (e) => { reviewGps.checked = e.target.checked; reclassify(); } } }), " Suggest the time zone from GPS"));
-        tabs = MF.Tabs({ tabs: [{ id: "todo", label: "To do", count: todo }, { id: "saved", label: "Saved", count: saved }, { id: "skipped", label: "Skipped", count: skipped }], value: tab, onChange: (id) => { tab = id; table.setRows(allRows().filter(inTab)); } });
+        tabs = MF.Tabs({ tabs: [{ id: "todo", label: "To do", count: todo }, { id: "saved", label: "Saved", count: saved }, { id: "skipped", label: "Skipped", count: skipped }], value: tab, onChange: (id) => {
+          if (saving) return tabs.set(tab);
+          tab = id;
+          table.setRows(allRows().filter(inTab));
+          selectTabRow();
+        } });
         replace(tabsHost, tabs.el);
         table = MF.VirtualTable({ fill: true, rowHeight: 58, columns: [{ label: "Files", width: "1fr", render: itemCell }], rows: allRows().filter(inTab), empty: tab === "todo" ? "Nothing left to decide." : "Nothing here yet.", onRowClick: (row) => select(row) });
         replace(listHost, table.el);
@@ -232,10 +223,10 @@
       }
 
       function renderFoot() {
-        if (!savedCount) return replace(footHost);
+        if (!savedPaths.size) return replace(footHost);
         replace(
           footHost,
-          h("span.muted.small", `${fmt.num(savedCount)} saved`),
+          h("span.muted.small", `${fmt.num(savedPaths.size)} saved`),
           h("span.spacer"),
           historyId ? MF.Button("Undo all", { size: "sm", iconName: "undo", onClick: undoAll }) : null,
           MF.Button("Scan again", { size: "sm", iconName: "refresh", onClick: () => runScanAgain() }),
@@ -243,19 +234,12 @@
       }
 
       async function runScanAgain() {
-        if (!scan) return;
-        try {
-          const res = await MF.busy("Looking at photos and videos…", "exif.batchScan", { folder: scan.folder, options: options() }, (p) => (p.phase === "find" ? { label: "Finding photos and videos…", left: `${fmt.num(p.found)} found` } : { label: "Reading dates…", ratio: p.total ? p.done / p.total : null, left: `${fmt.num(p.done)} of ${fmt.num(p.total)} files` }));
-          const keepGps = reviewGps.checked;
-          startReview(res);
-          reviewGps.checked = keepGps;
-          renderLeft();
-        } catch (err) {
-          if (!err.cancelled) MF.fail(err);
-        }
+        if (!scan || saving) return;
+        return openPaths(scan.paths);
       }
 
       async function undoAll() {
+        if (saving) return;
         const ok = await MF.confirm({ title: "Undo everything saved here?", message: "The previous EXIF values, file dates and folder dates are put back.", confirm: "Undo", iconName: "undo" });
         if (!ok) return;
         try {
@@ -269,6 +253,7 @@
 
       // ----- choosing a file -----
       function step(delta) {
+        if (saving) return;
         const list = allRows().filter(inTab);
         const i = list.findIndex((r) => current && r.path === current.path);
         const next = list[Math.min(list.length - 1, Math.max(0, (i < 0 ? 0 : i) + delta))];
@@ -276,7 +261,11 @@
       }
 
       async function select(row) {
+        if (saving) return;
         current = row;
+        outcome = null;
+        replace(sideScroll, h("div.muted.small", "Reading dates…"));
+        replace(sideFoot);
         if (table) {
           table.redraw();
           table.scrollTo((r) => r.path === row.path);
@@ -292,12 +281,27 @@
       }
 
       function renderEmpty() {
+        ++outcomeToken;
+        ++mediaToken;
         current = null;
+        outcome = null;
+        prevBtn.disabled = true;
+        nextBtn.disabled = true;
         stageName.textContent = "";
         stageCount.textContent = "";
-        replace(stageView, MF.Empty({ iconName: "check", title: scan.counts.review ? "All decided" : "Everything agrees", text: scan.counts.review ? "Every file that needed a decision has been saved or skipped. Scan again to check the folder." : `All ${fmt.num(scan.counts.total)} photos and videos already have the same EXIF, created and modified dates.` }));
-        replace(sideScroll, MF.Callout("green", h("b", "Nothing left to fix. "), "Folders were kept at their original modified dates."), h("div.row", { style: { gap: "8px" } }, MF.Button("Scan again", { iconName: "refresh", onClick: runScanAgain }), MF.Button("Another folder", { iconName: "folder", onClick: reset })));
+        const emptySelection = !scan.counts.total;
+        const title = emptySelection ? "No photos or videos found" : tab !== "todo" ? "Nothing here yet" : scan.counts.review ? "All decided" : "Everything agrees";
+        const text = emptySelection ? "Choose photos, videos or a folder containing them." : tab !== "todo" ? "Choose another tab to keep reviewing files." : scan.counts.review ? "Every file has been saved or skipped. You can revisit files in Saved or Skipped, or scan again." : `All ${fmt.num(scan.counts.total)} photos and videos already have the same EXIF, created and modified dates.`;
+        replace(stageView, MF.Empty({ iconName: emptySelection ? "photo" : "check", title, text }));
+        replace(sideScroll, h("div.row", { style: { gap: "8px", flexWrap: "wrap" } }, MF.Button("Scan again", { iconName: "refresh", onClick: runScanAgain }), null));
         replace(sideFoot);
+      }
+
+      function selectTabRow() {
+        const list = allRows().filter(inTab);
+        const row = list.find((r) => current && r.path === current.path) || list[0];
+        if (row) select(row);
+        else renderEmpty();
       }
 
       async function showMedia(row) {
@@ -334,6 +338,8 @@
       async function refreshOutcome() {
         if (!current) return;
         const token = ++outcomeToken;
+        outcome = null;
+        replace(sideFoot);
         const d = decisionFor(current);
         try {
           const o = await api.run("exif.batchOutcome", { scanId: scan.scanId, path: current.path, decision: toDecision(d) });
@@ -348,6 +354,7 @@
       }
 
       function setDecision(patch) {
+        if (!current || saving) return;
         Object.assign(decisionFor(current), patch);
         refreshOutcome();
       }
@@ -461,7 +468,7 @@
         if (!o) return;
         const d = decisionFor(current);
         replace(sideScroll, banner, dateCard(o), tzCard(o, d), choiceCard(o, d), changesCard(o), single ? h("div.card.card-pad", { style: { paddingTop: "8px", paddingBottom: "8px" } }, zoneLine) : null);
-        const valid = d.choice !== "" && !(d.choice === "one" && d.oneTarget === d.oneSrc) && !o.needsZone;
+        const valid = (d.choice !== "" || o.writeTz) && !(d.choice === "one" && d.oneTarget === d.oneSrc && !o.writeTz) && !o.needsZone;
         const saveBtn = MF.Button(single ? "Save" : "Save & next", { kind: "primary", size: "lg", iconName: "check", disabled: !valid || !o.anything, onClick: () => save(saveBtn) });
         const skipBtn = single ? null : MF.Button("Skip", { kind: "ghost", onClick: skip });
         const saveHint = o.needsZone ? h("span.muted.small", "Choose the time zone first") : !valid ? h("span.muted.small", "Choose what should win") : !o.anything ? h("span.muted.small", "Nothing would change") : null;
@@ -470,6 +477,9 @@
 
       // ----- saving -----
       function advance() {
+        tab = "todo";
+        tabs.set(tab);
+        table.setRows(todoRows());
         const list = todoRows();
         const next = list.find((r) => r.rel > current.rel) || list[0];
         if (next) select(next);
@@ -477,11 +487,17 @@
       }
 
       async function save(button) {
+        if (saving || !current || !outcome || outcome.path !== current.path) return;
         const row = current;
-        const d = decisionFor(row);
+        const decision = toDecision(decisionFor(row));
         const lines = changeLines(outcome);
+        const token = scanToken;
+        const scanId = scan.scanId;
+        const operation = saving = {};
         try {
-          const res = await MF.withSpinner(button, () => api.run("exif.batchApply", { scanId: scan.scanId, items: [{ path: row.path, decision: toDecision(d) }] }));
+          const res = await MF.withSpinner(button, () => api.run("exif.batchApply", { scanId, items: [{ path: row.path, decision }] }));
+          if (token !== scanToken) return;
+          if (saving === operation) saving = null;
           const r = res.results[0];
           if (!r.ok) {
             MF.toast("Couldn't save this file", { kind: "warn", detail: r.error });
@@ -490,28 +506,40 @@
           historyId = res.historyId || historyId;
           if (single) {
             const note = r.agree === false ? "Saved, but the dates still differ." : "Saved. Folder dates were kept.";
-            await openFile(row.path);
+            const reopened = openFile(row.path);
+            const reloadToken = scanToken;
+            await reopened;
+            if (reloadToken !== scanToken || !current || current.path !== row.path) return;
             banner = MF.undoCallout(r.agree === false ? "amber" : "green", h("span", h("b", note), h("div.bt-chgs", lineEls(lines))), res.historyId, () => openFile(row.path));
             renderPanel();
             return;
           }
-          savedCount++;
+          savedPaths.add(row.path);
           status.set(row.path, r.agree === false ? "partial" : "saved");
           MF.toast(`Saved ${row.name}`, { kind: r.agree === false ? "warn" : "success", timeout: 9000, detail: lines.map((l) => `${l.label}: ${l.from} → ${l.to}`).join("\n") || undefined });
           refreshCounts();
           advance();
         } catch (err) {
-          MF.fail(err);
+          if (token === scanToken) MF.fail(err);
+        } finally {
+          if (saving === operation) saving = null;
+          if (!saving && pendingPaths !== null) {
+            const paths = pendingPaths;
+            pendingPaths = null;
+            openPaths(paths);
+          }
         }
       }
 
       function skip() {
+        if (saving || !current) return;
         status.set(current.path, "skipped");
         refreshCounts();
         advance();
       }
 
       async function bulk(policy, button) {
+        if (saving) return;
         const targets = bulkRows().filter((r) => policy !== "exif" || r.hasExif);
         if (!targets.length) {
           MF.toast("Nothing to apply", { kind: "warn", detail: "None of the remaining files has an EXIF date to follow." });
@@ -536,7 +564,7 @@
           for (const r of res.results) {
             if (r.ok) {
               status.set(r.path, r.agree === false ? "partial" : "saved");
-              savedCount++;
+              savedPaths.add(r.path);
             } else failed++;
           }
           refreshCounts();
@@ -549,57 +577,48 @@
         }
       }
 
-      // Single file: read it (even if its dates already agree) and show the editor.
-      async function openFile(file) {
+      // All Modify inputs use this queue, including already-agreeing files and
+      // files without dates. Only discovery differs from the one-file editor.
+      async function openPaths(paths) {
+        const token = ++scanToken;
+        ++outcomeToken;
+        ++mediaToken;
+        if (scanJob) scanJob.cancel();
+        scanJob = null;
+        scan = null;
+        current = null;
+        outcome = null;
         banner = null;
+        review.classList.add("hidden");
+        loading.classList.toggle("hidden", !paths.length);
+        replace(stageView);
+        replace(sideScroll);
+        replace(sideFoot);
+        pendingPaths = saving ? paths.slice() : null;
+        if (!paths.length) return;
+        replace(loading, MF.Empty({ iconName: "search", title: "Reading photos and videos…", text: "Finding files and reading their dates. Nothing is changed." }));
+        if (saving) {
+          replace(loading, MF.Empty({ iconName: "clock", title: "Finishing the current save…", text: "Your new selection will open next." }));
+          return;
+        }
+        const job = scanJob = api.start("exif.batchScan", { paths, options: { reviewAll: true, useGps: reviewGps.checked } });
         try {
-          const res = await api.run("exif.batchScan", { folder: file, options: { single: true, useGps: true } });
-          zones = res.zones;
-          system = res.system;
+          const res = await job.promise;
+          if (token !== scanToken) return;
           await startReview(res);
         } catch (err) {
-          if (!err.cancelled) MF.fail(err);
+          if (token !== scanToken || err.cancelled) return;
+          replace(loading, MF.Empty({ iconName: "alert", title: "Couldn't read these files", text: err.message }));
+        } finally {
+          if (scanJob === job) scanJob = null;
         }
       }
 
-      function reset() {
-        scan = null;
-        rows.clear();
-        status.clear();
-        decisions.clear();
-        review.classList.add("hidden");
-        setup.classList.remove("hidden");
-        drop.clear();
-        scanBtn.disabled = true;
-        MF.refreshHeader();
-      }
+      const openFile = (file) => openPaths([file]);
 
-      if (single) {
-        prevBtn.classList.add("hidden");
-        nextBtn.classList.add("hidden");
-        return { el: root, openFile };
-      }
-      return {
-        el: root,
-        async onShow() {
-          try {
-            const z = await api.run("exif.batchZones");
-            zones = z.zones;
-            system = z.system;
-          } catch {
-            // the pickers just stay short
-          }
-        },
-      };
+      return { el: root, openFile, openPaths };
     }
   }
 
-  MF.views["exif-batch"] = {
-    crumb: "EXIF",
-    title: "Batch Modify",
-    subtitle: "Find photos and videos whose EXIF, created and modified dates disagree, and settle them one after another.",
-    full: true,
-    mount: () => build(false),
-  };
-  MF.batchEditor = () => build(true);
+  MF.dateEditor = build;
 })();

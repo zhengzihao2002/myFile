@@ -52,6 +52,7 @@ const PHOTO_OFFSET_TAGS = ["OffsetTimeOriginal", "OffsetTimeDigitized", "OffsetT
 function normalizeOptions(options, settings) {
   return {
     includeAll: false,
+    reviewAll: options.reviewAll === true,
     useGps: options.useGps !== false,
     tolMs: Math.max(1, Number(options.tolMs) || Number(settings.toleranceMs) || 1000),
     birthSupported: options.birthSupported !== undefined ? Boolean(options.birthSupported) : canSetBirthtime(),
@@ -254,7 +255,7 @@ function classifyAll(scan, opts) {
     const c = classify(raw, opts);
     if (c.agree) {
       counts.agree++;
-      if (!scan.single) continue;
+      if (!scan.single && !opts.reviewAll) continue;
     }
     counts.review++;
     if (!raw.has) counts.noExif++;
@@ -265,25 +266,46 @@ function classifyAll(scan, opts) {
   return { rows, counts };
 }
 
-async function scan(ctx, { folder, options = {} }, task) {
-  if (!folder) throw new UserError("Choose a folder first.");
-  let st;
-  try {
-    st = await fs.promises.stat(folder);
-  } catch {
-    throw new UserError("That folder can't be opened.");
+/** Whether a path is inside a selected folder (without matching a sibling prefix). */
+function within(folder, file) {
+  const rel = path.relative(folder, file);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+}
+
+async function scan(ctx, { folder, paths, options = {} }, task) {
+  const selection = [];
+  const seen = new Set();
+  const suppliedPaths = Array.isArray(paths);
+  for (const p of suppliedPaths ? paths : folder ? [folder] : []) {
+    if (typeof p !== "string" || !p) continue;
+    const full = path.resolve(p);
+    const key = full.normalize("NFC");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    selection.push(full);
   }
-  // A single file (EXIF › Modify): the same flow, listed even when its dates already agree.
-  const single = options.single === true && st.isFile();
-  if (!single && !st.isDirectory()) throw new UserError("Choose a folder, not a single file.");
-  const file = single ? folder : null;
-  if (single) folder = path.dirname(folder);
+  if (!selection.length) throw new UserError(suppliedPaths ? "Choose photos, videos or folders first." : "Choose a folder first.");
+  const stats = await Promise.all(selection.map((p) => fs.promises.stat(p).catch(() => null)));
+  // The legacy folder-only Batch Modify API keeps its validation and filtering.
+  if (!suppliedPaths) {
+    if (!stats[0]) throw new UserError("That folder can't be opened.");
+    if (!(options.single === true && stats[0].isFile()) && !stats[0].isDirectory()) throw new UserError("Choose a folder, not a single file.");
+  }
+  // Only an explicitly selected single file gets the compact editor. A folder
+  // containing one photo still remains a folder review session.
+  const single = selection.length === 1 && Boolean(stats[0] && stats[0].isFile()) && (suppliedPaths || options.single === true);
+  const selectedDirs = selection.filter((p, i) => stats[i] && stats[i].isDirectory()).sort((a, b) => a.length - b.length);
+  const boundaries = selection.map((p, i) => stats[i] && stats[i].isDirectory() ? p : path.dirname(p));
+  // This common folder is only for row labels. Restoration uses each file's
+  // selected root, so loose files on different drives never enlist ancestors.
+  folder = boundaries[0];
+  for (const boundary of boundaries.slice(1)) while (!within(folder, boundary)) folder = path.dirname(folder);
   const settings = ctx.settings.get();
-  const volume = await ctx.volumes.info(folder).catch(() => null);
-  const opts = normalizeOptions({ ...options, tolMs: Math.max(Number(settings.toleranceMs) || 1000, volume ? volume.granularityMs : 0) }, settings);
+  const volumes = await Promise.all([...new Set(boundaries)].map((p) => ctx.volumes.info(p).catch(() => null)));
+  const opts = normalizeOptions({ ...options, tolMs: Math.max(Number(settings.toleranceMs) || 1000, ...volumes.map((v) => Number(v && v.granularityMs) || 0)) }, settings);
 
   const report = throttle((p) => task.progress(p), 150);
-  const { files, skipped } = await expandMediaPaths([file || folder], {
+  const { files, skipped } = await expandMediaPaths(selection, {
     ignore: ignoreFor(opts),
     signal: task.signal,
     onProgress: ({ found, current }) => report({ phase: "find", found, current }),
@@ -291,12 +313,13 @@ async function scan(ctx, { folder, options = {} }, task) {
   report.flush();
   const raws = new Map();
   for (const raw of await readRaws(ctx, files, { signal: task.signal, onProgress: (p) => task.progress({ phase: "read", done: p.done, total: p.total, current: p.current }) })) raws.set(raw.path, raw);
+  const roots = new Map(files.map((file) => [file, selectedDirs.find((dir) => within(dir, file)) || path.dirname(file)]));
 
   const id = newId("bat");
-  const scanData = { id, folder, raws, opts, single, historyId: null, folders: new Map() };
+  const scanData = { id, folder, paths: selection, roots, raws, opts, single, historyId: null, folders: new Map() };
   ctx.remember(id, scanData);
   const { rows, counts } = classifyAll(scanData, opts);
-  return { scanId: id, folder, rows, counts, skipped, birthSupported: opts.birthSupported, system: { zone: tz.systemZone(), label: tz.describeSpec({ zone: tz.systemZone() }, Date.now()) }, zones: tz.QUICK_ZONES };
+  return { scanId: id, folder, paths: selection, single, reviewAll: opts.reviewAll, rows, counts, skipped, birthSupported: opts.birthSupported, system: { zone: tz.systemZone(), label: tz.describeSpec({ zone: tz.systemZone() }, Date.now()) }, zones: tz.QUICK_ZONES };
 }
 
 function recall(ctx, scanId) {
@@ -308,7 +331,7 @@ function recall(ctx, scanId) {
 /** The same scan with other options (default zone, GPS guessing): no re-reading of the files. */
 async function reclassify(ctx, { scanId, options = {} }) {
   const s = recall(ctx, scanId);
-  s.opts = normalizeOptions({ ...options, tolMs: s.opts.tolMs, birthSupported: s.opts.birthSupported }, ctx.settings.get());
+  s.opts = normalizeOptions({ ...options, reviewAll: s.opts.reviewAll, tolMs: s.opts.tolMs, birthSupported: s.opts.birthSupported }, ctx.settings.get());
   const { rows, counts } = classifyAll(s, s.opts);
   return { rows, counts };
 }
@@ -385,6 +408,7 @@ function folderChain(file, root) {
   const dirs = [];
   let dir = path.dirname(file);
   const stop = path.resolve(root);
+  if (!within(stop, dir)) return [dir];
   while (true) {
     dirs.push(dir);
     if (path.resolve(dir) === stop || path.dirname(dir) === dir) break;
@@ -397,11 +421,13 @@ async function apply(ctx, { scanId, items }, task) {
   const s = recall(ctx, scanId);
   const list = (items || []).filter((i) => i && i.path);
   if (!list.length) throw new UserError("Nothing to save.");
+  if (list.some((i) => !s.raws.has(i.path))) throw new UserError("That file isn't part of this scan.");
+  const chainFor = (file) => folderChain(file, s.roots ? s.roots.get(file) : s.folder);
 
   // Remember the folders' dates before touching anything inside them.
   const folderBefore = new Map();
   for (const item of list) {
-    for (const dir of folderChain(item.path, s.folder)) {
+    for (const dir of chainFor(item.path)) {
       if (folderBefore.has(dir) || s.folders.has(dir)) continue;
       try {
         const st = await fs.promises.stat(dir);
@@ -412,7 +438,7 @@ async function apply(ctx, { scanId, items }, task) {
     }
   }
   for (const [dir, v] of folderBefore) s.folders.set(dir, v);
-  const dirsInvolved = new Set(list.flatMap((i) => folderChain(i.path, s.folder)));
+  const dirsInvolved = new Set(list.flatMap((i) => chainFor(i.path)));
 
   const results = [];
   const undoExif = [];
@@ -492,11 +518,12 @@ async function apply(ctx, { scanId, items }, task) {
     const undo = { exif: undoExif, times: [...undoTimes, ...folderEntries] };
     const done = (s.saved = (s.saved || 0) + ok);
     const summary = `${done} file${done === 1 ? "" : "s"} fixed${foldersRestored || s.foldersRestored ? `; folder dates kept (${(s.foldersRestored = (s.foldersRestored || 0) + foldersRestored)} put back)` : ""}`;
-    const details = { folder: s.folder, folders: [...s.folders.values()].map((f) => ({ path: f.path, mtimeMs: f.mtimeMs })) };
+    const details = { folder: s.folder, paths: s.paths, folders: [...s.folders.values()].map((f) => ({ path: f.path, mtimeMs: f.mtimeMs })) };
     if (historyId && ctx.history.append(historyId, { undo, summary, details })) {
       // added to this session's entry
     } else {
-      const entry = ctx.history.add({ type: "exif-batch", title: s.single ? `Fixed ${path.basename([...s.raws.keys()][0] || s.folder)}` : `Batch fix in ${path.basename(s.folder) || s.folder}`, summary, details, undo });
+      const title = s.single ? `Fixed ${path.basename([...s.raws.keys()][0] || s.folder)}` : s.opts.reviewAll ? "Modified photo and video dates" : `Batch fix in ${path.basename(s.folder) || s.folder}`;
+      const entry = ctx.history.add({ type: "exif-batch", title, summary, details, undo });
       historyId = s.historyId = entry.id;
     }
   }

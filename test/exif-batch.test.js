@@ -265,6 +265,101 @@ test("a single file can be scanned and edited, even when its dates already agree
   await assert.rejects(call("exif.batchScan", { folder: file, options: {} }), /not a single file/);
 });
 
+test("Modify reviews every loose photo and video, including agreeing dates, missing dates and unknown zones", async () => {
+  const root = tmpDir("modify-files");
+  const matching = await photo(root, "matching.jpg", [["DateTimeOriginal", "2023:05:01 12:00:00"], ["OffsetTimeOriginal", "+08:00"]], "2023-05-01T04:00:00Z");
+  const unknown = await photo(root, "unknown.jpg", [["DateTimeOriginal", "2023:05:01 12:00:00"]], "2023-05-01T04:00:00Z");
+  const noDate = makeJpeg(path.join(root, "no-date.jpg"));
+  const movie = makeMovieAt(path.join(root, "clip.mov"));
+  await et.write(movie, [["QuickTime:CreateDate", "2010:08:01 09:08:27Z"]]);
+  setMtime(movie, at("2010-08-01T09:08:27Z"));
+  const scan = await call("exif.batchScan", { paths: [matching, movie, noDate, unknown, path.join(root, "nested", "..", "matching.jpg")], options: { reviewAll: true, birthSupported: false } });
+  assert.deepEqual(scan.paths, [matching, movie, noDate, unknown], "repeated normalized selections are kept once");
+  assert.equal(scan.single, false);
+  assert.equal(scan.reviewAll, true);
+  assert.equal(scan.counts.total, 4);
+  assert.equal(scan.rows.length, 4, "all four files have the detailed editor, including files whose dates already agree");
+  assert.equal(scan.rows.find((r) => r.path === unknown).needsZone, true);
+  assert.equal(scan.rows.find((r) => r.path === noDate).hasExif, false);
+  assert.equal(scan.rows.find((r) => r.path === movie).movie, true);
+  assert.ok(scan.counts.agree >= 2);
+  const reclassified = await call("exif.batchClassify", { scanId: scan.scanId, options: { useGps: false } });
+  assert.equal(reclassified.rows.length, 4, "changing suggestions never removes agreeing files from a Modify queue");
+  const single = await call("exif.batchScan", { paths: [matching], options: { reviewAll: true, birthSupported: false } });
+  assert.equal(single.single, true);
+  assert.deepEqual(single.rows, scan.rows.filter((r) => r.path === matching), "single and multiple selections use identical file details");
+});
+
+test("Modify recursively reviews folders and deduplicates overlapping folders and loose files", async () => {
+  const root = tmpDir("modify-folders");
+  const nested = path.join(root, "trip", "day1");
+  const a = await photo(nested, "photo.jpg", [["DateTimeOriginal", "2023:05:01 12:00:00"], ["OffsetTimeOriginal", "+08:00"]], "2023-05-01T04:00:00Z");
+  const b = makeMovieAt(path.join(root, "trip", "movie.mov"));
+  fs.writeFileSync(path.join(root, "notes.txt"), "not media");
+  makeJpeg(path.join(root, "._system.jpg"));
+  const missing = path.join(root, "missing.jpg");
+  const scan = await call("exif.batchScan", { paths: [nested, root, a, root, missing], options: { reviewAll: true, birthSupported: false } });
+  assert.equal(scan.single, false);
+  assert.deepEqual(scan.rows.map((r) => r.path).sort(), [a, b].sort());
+  assert.deepEqual(scan.rows.map((r) => r.rel), ["trip/day1/photo.jpg", "trip/movie.mov"]);
+  assert.ok(scan.skipped.some((s) => s.path === missing));
+  const onlyFolder = tmpDir("modify-one-folder");
+  makeJpeg(path.join(onlyFolder, "one.jpg"));
+  const one = await call("exif.batchScan", { paths: [onlyFolder], options: { reviewAll: true, birthSupported: false } });
+  assert.equal(one.single, false, "one file discovered inside a folder still uses folder navigation");
+  assert.equal(one.rows.length, 1);
+  const legacy = await call("exif.batchScan", { folder: root, options: { birthSupported: false } });
+  assert.ok(!legacy.rows.some((r) => r.path === a), "Batch Modify retains its disagreements-only filter");
+});
+
+test("Modify saves across separate folders into one undo session without enlisting unrelated ancestors", async () => {
+  const root = tmpDir("modify-session");
+  const aRoot = path.join(root, "folder-a");
+  const aSub = path.join(aRoot, "nested");
+  const looseParent = path.join(root, "loose", "deep");
+  const a = await photo(aSub, "photo.jpg", [["DateTimeOriginal", "2015:12:29 14:28:42"], ["OffsetTimeOriginal", "-05:00"]], "2022-12-24T17:24:33Z");
+  const b = makeMovieAt(path.join(looseParent, "movie.mov"));
+  await et.write(b, [["QuickTime:CreateDate", "2010:08:01 09:08:27Z"]]);
+  setMtime(b, at("2021-01-01T00:00:00Z"));
+  const directoryTime = at("2001-02-03T04:05:06Z");
+  for (const dir of [aSub, aRoot, looseParent, path.dirname(looseParent), root]) setMtime(dir, directoryTime);
+  const scan = await call("exif.batchScan", { paths: [aSub, aRoot, b], options: { reviewAll: true, birthSupported: false } });
+  const first = await call("exif.batchApply", { scanId: scan.scanId, items: [{ path: a, decision: { set: { exif: "modified" } } }] });
+  assert.equal(first.ok, 1, JSON.stringify(first.results));
+  const second = await call("exif.batchApply", { scanId: scan.scanId, items: [{ path: b, decision: { set: { modified: "exif" } } }] });
+  assert.equal(second.ok, 1, JSON.stringify(second.results));
+  assert.equal(second.historyId, first.historyId, "navigating between selected roots keeps the same session");
+  const third = await call("exif.batchApply", { scanId: scan.scanId, items: [{ path: a, decision: { tz: "Asia/Shanghai", writeTz: true, set: { modified: "exif" } } }] });
+  assert.equal(third.ok, 1, JSON.stringify(third.results));
+  assert.equal(third.historyId, first.historyId, "revisiting a file appends to the existing session");
+  const entry = ctx.history.list().find((e) => e.id === first.historyId);
+  assert.deepEqual(entry.details.paths, scan.paths);
+  assert.deepEqual(entry.details.folders.map((f) => f.path).sort(), [aSub, aRoot, looseParent].sort(), "only selected folder chains and loose-file direct parents are protected");
+  for (const dir of [aSub, aRoot, looseParent]) assert.equal(fs.statSync(dir).mtimeMs, directoryTime);
+  const undo = await call("history.revert", { id: first.historyId });
+  assert.deepEqual(undo.failures, []);
+  const original = await readTags(et, a, ["DateTimeOriginal", "OffsetTimeOriginal"]);
+  assert.equal(original.DateTimeOriginal, "2015:12:29 14:28:42");
+  assert.equal(original.OffsetTimeOriginal, "-05:00", "the oldest metadata snapshot wins across revisits");
+  assert.equal(fs.statSync(a).mtimeMs, at("2022-12-24T17:24:33Z"));
+  assert.equal(fs.statSync(b).mtimeMs, at("2021-01-01T00:00:00Z"));
+  for (const dir of [aSub, aRoot, looseParent]) assert.equal(fs.statSync(dir).mtimeMs, directoryTime);
+});
+
+test("Modify handles empty selections and refuses saves outside the selected files", async () => {
+  await assert.rejects(call("exif.batchScan", { paths: [], options: { reviewAll: true } }), /Choose photos, videos or folders/);
+  const root = tmpDir("modify-empty");
+  const empty = await call("exif.batchScan", { paths: [root], options: { reviewAll: true } });
+  assert.equal(empty.counts.total, 0);
+  assert.deepEqual(empty.rows, []);
+  const selected = makeJpeg(path.join(root, "selected.jpg"));
+  const outsider = await photo(tmpDir("modify-outsider"), "outsider.jpg", [["DateTimeOriginal", "2023:05:01 12:00:00"], ["OffsetTimeOriginal", "+08:00"]], "2020-01-01T00:00:00Z");
+  const scan = await call("exif.batchScan", { paths: [selected], options: { reviewAll: true } });
+  await assert.rejects(call("exif.batchApply", { scanId: scan.scanId, items: [{ path: outsider, decision: { set: { modified: "exif" } } }] }), /isn't part of this scan/);
+  assert.equal(fs.statSync(outsider).mtimeMs, at("2020-01-01T00:00:00Z"));
+  assert.equal(ctx.recall(scan.scanId).folders.size, 0, "reject before taking any folder snapshots");
+});
+
 test("EXIF Show reports a QuickTime date as one exact UTC moment, not a stored zone", async () => {
   const file = makeMovieAt(path.join(tmpDir("show-utc"), "m.mov"));
   await et.write(file, [["QuickTime:CreateDate", "2010:08:01 09:08:27Z"]]);

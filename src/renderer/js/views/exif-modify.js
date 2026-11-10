@@ -334,126 +334,27 @@
   // ---------------------------------------------------------------------------
 
   function buildSelf() {
-    const options = { created: true, modified: true };
-    let plan = null;
-    let job = null;
-
-    const drop = MF.DropZone({ label: "Photos and videos", hint: "files or folders", accept: "media-or-folder", multiple: true, title: "Drop photos, videos or folders", subtitle: "Each file's created and modified dates are set to the date inside it. Drop one file to fine-tune it.", moreTitle: "Add more", glyph: "calendar", onChange: () => { replace(result); refresh(); syncOne(); } });
-    const created = MF.Option({ title: "Set the created date", desc: "What Finder shows as “Created”.", checked: true, onChange: (v) => { options.created = v; refresh(); } });
-    const modified = MF.Option({ title: "Set the modified date", desc: "What Finder shows as “Modified”.", checked: true, onChange: (v) => { options.modified = v; refresh(); } });
-    const tabs = MF.Tabs({
-      value: "all",
-      tabs: [
-        { id: "all", label: "All" },
-        { id: "change", label: "Will change" },
-        { id: "same", label: "Already right" },
-        { id: "nodate", label: "No date" },
-        { id: "nozone", label: "Choose time zone" },
-      ],
-      onChange: (id) => table.setFilter(id === "all" ? null : (r) => r.status === id),
-    });
-    const head = h("div.card-head", h("h3", "Preview"), h("span.sub", "Dates come from DateTimeOriginal, then CreateDate; videos use their QuickTime dates."), h("div.right"));
-    const table = MF.VirtualTable({
-      maxHeight: 400,
-      empty: "Drop photos or videos above.",
-      columns: [
-        { label: "File", width: "minmax(150px, 0.8fr)", render: fileCell, title: (r) => r.path },
-        { label: "Date inside the file", width: "minmax(200px, 1fr)", render: (r) => (r.exifText ? h("div", { title: r.source }, fmt.exif(r.exifText)) : h("span.faint", "none")) },
-        { label: "Created (file's zone)", width: "minmax(250px, 1.15fr)", render: (r) => (r.changeCreated ? MF.Change(r.createdText, r.targetText) : r.createdText || h("span.faint", "File time zone unknown")) },
-        { label: "Modified (file's zone)", width: "minmax(250px, 1.15fr)", render: (r) => (r.changeModified ? MF.Change(r.modifiedText, r.targetText) : r.modifiedText || h("span.faint", "File time zone unknown")) },
-        { label: "Status", width: "112px", render: (r) => (r.status === "change" ? h("span.badge.accent", "Will change") : r.status === "same" ? h("span.badge.green", icon("check"), "Matches") : h("span.badge.amber", r.status === "nozone" ? "Choose zone" : "No date")) },
-      ],
-    });
-    const result = h("div");
-    const summary = h("div.summary");
-    const applyBtn = MF.Button("Apply", { kind: "primary", size: "lg", iconName: "check", disabled: true, onClick: apply });
-    // Exactly one photo or video: the full one-file editor (time zone, which date wins, preview) instead.
-    const oneBox = h("div.hidden");
-    const many = h(
-      "div.stack",
-      h("div.card.card-pad", { style: { paddingTop: "6px", paddingBottom: "6px" } }, created.el, modified.el),
-      h("div.card", head, tabs.el, table.el),
-      result,
-      h("div.actionbar", summary, h("span.spacer"), applyBtn),
-    );
-    const el = h("div.stack", drop.el, oneBox, many);
-    let oneFor = null;
-    function syncOne() {
-      const only = drop.infos.length === 1 && drop.infos[0].isFile ? drop.infos[0].path : null;
-      oneBox.classList.toggle("hidden", !only);
-      many.classList.toggle("hidden", Boolean(only));
-      if (only === oneFor) return;
-      oneFor = only;
-      if (!only) return replace(oneBox);
-      const editor = MF.batchEditor();
-      replace(oneBox, h("div.bt-embed", editor.el));
-      editor.openFile(only);
-    }
-
-    const refresh = MF.debounce(async () => {
-      if (job) job.cancel();
-      const paths = drop.paths;
-      if (!paths.length || (drop.infos.length === 1 && drop.infos[0].isFile)) {
-        plan = null;
-        table.setRows([]);
-        update();
-        return;
-      }
-      const right = head.querySelector(".right");
-      replace(right, h("span.muted.small", "Reading dates…"));
-      job = api.start("exif.datesPlan", { paths, options }, { onProgress: (p) => p.total && replace(right, h("span.muted.small.num", `Reading ${fmt.num(p.done)} of ${fmt.num(p.total)}…`)) });
-      const mine = job;
-      try {
-        plan = await job.promise;
-        if (mine !== job) return;
-        table.setRows(plan.rows);
-        tabs.setCount("all", plan.rows.length);
-        tabs.setCount("change", plan.counts.change);
-        tabs.setCount("same", plan.counts.same);
-        tabs.setCount("nodate", plan.counts.nodate);
-        tabs.setCount("nozone", plan.counts.nozone);
-        replace(right);
-      } catch (err) {
-        if (err.cancelled) return;
-        replace(right);
-        MF.fail(err);
-      }
-      update();
-    }, 250);
-
-    function update() {
-      const n = plan ? plan.counts.change : 0;
-      applyBtn.disabled = !n || (!options.created && !options.modified);
-      replace(applyBtn.querySelector("span"), n ? `Update ${fmt.plural(n, "file")}` : "Apply");
-      replace(
-        summary,
-        plan
-          ? h("span", h("b", fmt.num(plan.counts.change)), " will change · ", h("b", fmt.num(plan.counts.same)), " already right · ", h("b", fmt.num(plan.counts.nodate)), " without a date", plan.counts.nozone ? ` · ${plan.counts.nozone} need a time zone: open each file individually to choose it` : "")
-          : "Drop photos or videos to begin.",
-      );
-    }
-
-    async function apply() {
-      const n = plan.counts.change;
-      const ok = await MF.confirm({ title: `Update ${fmt.plural(n, "file")}?`, message: "Only the files' created and modified dates change; the photos and videos themselves aren't touched. You can undo this.", confirm: "Update", iconName: "calendar" });
-      if (!ok) return;
-      try {
-        const res = await MF.busy("Setting file dates…", "exif.datesApply", { paths: drop.paths, options }, (p) => ({ ratio: p.total ? p.done / p.total : null, left: p.phase === "read" ? "Reading dates" : "Writing dates" }));
-        const note = res.birthUnsupported ? " (created dates can only be set on macOS)" : "";
-        replace(result, undoCallout(res.failures.length ? "amber" : "green", h("span", h("b", `${fmt.plural(res.changed, "file")} updated${note}.`), res.failures.length ? ` ${res.failures.length} failed: ${res.failures.slice(0, 2).map((f) => `${fmt.base(f.path)} (${f.error})`).join(", ")}` : ""), res.historyId, () => refresh()));
-        MF.toast("File dates updated", { kind: "success" });
-        refresh();
-      } catch (err) {
-        MF.fail(err);
-      }
-    }
-
-    update();
-    return {
-      el,
-      setPaths(paths) {
-        drop.set(paths);
+    // Every selection uses the same precise per-file editor. The editor owns
+    // the review queue; folders and loose files only change how it is filled.
+    const editor = MF.dateEditor();
+    const editorBox = h("div.bt-embed.hidden", editor.el);
+    const drop = MF.DropZone({
+      label: "Photos and videos",
+      hint: "files or folders",
+      accept: "media-or-folder",
+      multiple: true,
+      title: "Drop photos, videos or folders",
+      subtitle: "Review each file one by one, including files in subfolders. Choose which date wins or change just one date.",
+      moreTitle: "Add more files or folders",
+      glyph: "calendar",
+      onChange: (paths) => {
+        editorBox.classList.toggle("hidden", !paths.length);
+        editor.openPaths(paths);
       },
+    });
+    return {
+      el: h("div.stack", drop.el, editorBox),
+      setPaths: (paths) => drop.set(paths),
     };
   }
 })();

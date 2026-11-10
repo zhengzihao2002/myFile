@@ -11,7 +11,6 @@
       items: [
         { id: "exif-show", label: "Show", icon: "photo", key: "1" },
         { id: "exif-modify", label: "Modify", icon: "wand", key: "2" },
-        { id: "exif-batch", label: "Batch Modify", icon: "layers", key: "8" },
       ],
     },
     {
@@ -161,12 +160,16 @@
       if (msg.action === "open-inspect") MF.go("exif-show", { browse: true });
     });
     let start = "home";
+    let startParams = {};
     try {
       const saved = localStorage.getItem("myfile.view");
-      if (saved && MF.views[saved]) start = saved;
+      if (saved === "exif-batch") {
+        start = "exif-modify";
+        startParams = { mode: "self" };
+      } else if (saved && MF.views[saved]) start = saved;
     } catch {
       // storage unavailable
     }
-    MF.go(start);
+    MF.go(start, startParams);
   });
 })();
