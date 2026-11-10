@@ -503,3 +503,44 @@ test("file-zone previews and writes do not depend on the current Mac time zone",
     else process.env.TZ = previous;
   }
 });
+
+
+test("selection edits reuse folder membership and metadata while preserving the undo session", async (t) => {
+  const root = tmpDir("incremental-folder");
+  const inside = await photo(root, "nested/inside.jpg", [["DateTimeOriginal", "2023:05:01 12:00:00"], ["OffsetTimeOriginal", "+08:00"]], "2020-01-01T00:00:00Z");
+  const loose = await photo(tmpDir("incremental-loose"), "loose.jpg", [["DateTimeOriginal", "2022:01:01 12:00:00"], ["OffsetTimeOriginal", "+08:00"]], "2020-01-01T00:00:00Z");
+  const initial = await call("exif.batchScan", { paths: [root], options: { reviewAll: true, birthSupported: false } });
+  const saved = await call("exif.batchApply", { scanId: initial.scanId, items: [{ path: inside, decision: { set: { modified: "exif" } } }] });
+  const reads = [];
+  const walks = [];
+  const readJson = et.readJson;
+  const readdir = fs.promises.readdir;
+  et.readJson = function (files, ...args) { reads.push(...files); return readJson.call(this, files, ...args); };
+  fs.promises.readdir = function (dir, ...args) { walks.push(dir); return readdir.call(this, dir, ...args); };
+  t.after(() => { et.readJson = readJson; fs.promises.readdir = readdir; });
+  const added = await call("exif.batchScan", { scanId: initial.scanId, paths: [root, loose], options: { reviewAll: true, birthSupported: false } });
+  assert.deepEqual(reads, [loose], "only the new loose photo is read");
+  assert.deepEqual(walks, [], "the existing folder is never traversed again");
+  assert.equal(added.scanId, initial.scanId);
+  assert.equal(added.historyId, saved.historyId);
+  assert.deepEqual(added.savedPaths, [[inside, "saved"]]);
+  reads.length = 0;
+  const removed = await call("exif.batchScan", { scanId: added.scanId, paths: [root], options: { reviewAll: true, birthSupported: false } });
+  assert.deepEqual(reads, [], "removing a photo reads no metadata");
+  assert.deepEqual(walks, []);
+  assert.deepEqual(removed.rows.map((r) => r.path), [inside]);
+  const overlap = await call("exif.batchScan", { scanId: removed.scanId, paths: [root, inside], options: { reviewAll: true, birthSupported: false } });
+  assert.deepEqual(reads, [], "adding an already-included loose file reuses its metadata");
+  assert.equal(overlap.rows.length, 1);
+  const looseOnly = await call("exif.batchScan", { scanId: overlap.scanId, paths: [inside], options: { reviewAll: true, birthSupported: false } });
+  assert.deepEqual(reads, [], "removing the containing folder keeps the selected loose file cached");
+  assert.deepEqual(walks, []);
+  assert.equal(looseOnly.single, true);
+  const undo = await call("history.revert", { id: saved.historyId });
+  assert.deepEqual(undo.failures, []);
+  assert.equal(fs.statSync(inside).mtimeMs, at("2020-01-01T00:00:00Z"));
+  reads.length = 0;
+  await call("exif.batchScan", { paths: [root], options: { reviewAll: true, birthSupported: false } });
+  assert.deepEqual(reads, [inside], "an explicit fresh scan rereads the folder");
+  assert.ok(walks.includes(root));
+});

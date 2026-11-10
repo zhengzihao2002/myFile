@@ -272,7 +272,9 @@ function within(folder, file) {
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
 }
 
-async function scan(ctx, { folder, paths, options = {} }, task) {
+async function scan(ctx, { folder, paths, scanId, options = {} }, task) {
+  const previous = scanId ? ctx.recall(scanId) : null;
+  const prior = previous && previous.raws instanceof Map && previous.sources instanceof Map ? previous : null;
   const selection = [];
   const seen = new Set();
   const suppliedPaths = Array.isArray(paths);
@@ -305,22 +307,43 @@ async function scan(ctx, { folder, paths, options = {} }, task) {
   const opts = normalizeOptions({ ...options, tolMs: Math.max(Number(settings.toleranceMs) || 1000, ...volumes.map((v) => Number(v && v.granularityMs) || 0)) }, settings);
 
   const report = throttle((p) => task.progress(p), 150);
-  task.progress({ phase: "find", found: 0, current: selection[0] });
-  const { files, skipped } = await expandMediaPaths(selection, {
-    ignore: ignoreFor(opts),
-    signal: task.signal,
-    onProgress: ({ found, current }) => report({ phase: "find", found, current }),
-  });
+  // Keep membership for unchanged roots: adding/removing loose files must
+  // neither walk an existing folder again nor reread its metadata.
+  const sources = new Map();
+  const unique = new Map();
+  const skipped = [];
+  for (const source of selection) {
+    checkCancel(task.signal);
+    const cached = prior && prior.sources && prior.sources.get(source);
+    if (!cached) task.progress({ phase: "find", found: unique.size, current: source });
+    const expanded = cached || await expandMediaPaths([source], {
+      ignore: ignoreFor(opts),
+      signal: task.signal,
+      onProgress: ({ found, current }) => report({ phase: "find", found: unique.size + found, current }),
+    });
+    sources.set(source, expanded);
+    for (const file of expanded.files) unique.set(file.normalize("NFC"), file);
+    skipped.push(...expanded.skipped);
+  }
   report.flush();
+  const files = [...unique.values()];
   const raws = new Map();
-  for (const raw of await readRaws(ctx, files, { signal: task.signal, onProgress: (p) => task.progress({ ...p, phase: "read" }) })) raws.set(raw.path, raw);
+  const unread = [];
+  for (const file of files) {
+    const cached = prior && prior.raws.get(file);
+    if (cached) raws.set(file, cached);
+    else unread.push(file);
+  }
+  for (const raw of await readRaws(ctx, unread, { signal: task.signal, onProgress: (p) => task.progress({ ...p, phase: "read" }) })) raws.set(raw.path, raw);
   const roots = new Map(files.map((file) => [file, selectedDirs.find((dir) => within(dir, file)) || path.dirname(file)]));
 
-  const id = newId("bat");
-  const scanData = { id, folder, paths: selection, roots, raws, opts, single, historyId: null, folders: new Map() };
+  checkCancel(task.signal);
+  const id = prior ? prior.id : newId("bat");
+  const scanData = prior || { id, historyId: null, folders: new Map(), savedPaths: new Map() };
+  Object.assign(scanData, { folder, paths: selection, sources, roots, raws, opts, single });
   ctx.remember(id, scanData);
   const { rows, counts } = classifyAll(scanData, opts);
-  return { scanId: id, folder, paths: selection, single, reviewAll: opts.reviewAll, rows, counts, skipped, birthSupported: opts.birthSupported, system: { zone: tz.systemZone(), label: tz.describeSpec({ zone: tz.systemZone() }, Date.now()) }, zones: tz.QUICK_ZONES };
+  return { scanId: id, historyId: scanData.historyId, savedPaths: [...(scanData.savedPaths || new Map())], folder, paths: selection, single, reviewAll: opts.reviewAll, rows, counts, skipped, birthSupported: opts.birthSupported, system: { zone: tz.systemZone(), label: tz.describeSpec({ zone: tz.systemZone() }, Date.now()) }, zones: tz.QUICK_ZONES };
 }
 
 function recall(ctx, scanId) {
@@ -528,6 +551,8 @@ async function apply(ctx, { scanId, items }, task) {
       historyId = s.historyId = entry.id;
     }
   }
+  if (!s.savedPaths) s.savedPaths = new Map();
+  for (const r of results) if (r.ok) s.savedPaths.set(r.path, r.agree === false ? "partial" : "saved");
   return { results, ok, failed, foldersRestored, historyId, undoable: Boolean(historyId) };
 }
 

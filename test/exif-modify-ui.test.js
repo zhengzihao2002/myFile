@@ -388,5 +388,33 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     assert.equal(await page.locator(".bt-loading").isVisible(), false);
   });
 
+  await t.test("adding and removing a loose photo preserves the existing folder review without rereading it", async (t) => {
+    const root = tmpDir("ui-incremental-folder");
+    const a = await photo(root, "a.jpg");
+    await photo(root, "nested/b.jpg");
+    const loose = await photo(tmpDir("ui-incremental-loose"), "z-loose.jpg");
+    const page = await pageFor(t);
+    await dropPaths(page, [root]);
+    await currentFile(page, "a.jpg");
+    await page.getByRole("button", { name: /Everything follows Modified/ }).click();
+    await page.locator(".bt-choice.on").filter({ hasText: "Everything follows Modified" }).waitFor();
+    const reads = [];
+    const original = harness.ctx.et.readJson;
+    harness.ctx.et.readJson = function (files, ...args) { reads.push(...files); return original.call(this, files, ...args); };
+    t.after(() => { harness.ctx.et.readJson = original; });
+    await dropPaths(page, [loose]);
+    await currentFile(page, "a.jpg");
+    assert.match(await page.locator(".stage-bar").textContent(), /1 of 3/);
+    assert.match(await page.locator(".bt-choice.on").textContent(), /Everything follows Modified/);
+    assert.deepEqual(reads, [loose]);
+    reads.length = 0;
+    await page.locator(".drop .item").filter({ hasText: "z-loose.jpg" }).getByTitle("Remove", { exact: true }).click();
+    await currentFile(page, "a.jpg");
+    assert.match(await page.locator(".stage-bar").textContent(), /1 of 2/);
+    assert.match(await page.locator(".bt-choice.on").textContent(), /Everything follows Modified/);
+    assert.deepEqual(reads, []);
+    assert.equal(fs.statSync(a).mtimeMs, Date.parse("2024-06-01T01:02:03Z"));
+  });
+
   assert.deepEqual(errors, [], "renderer has no unhandled errors");
 });

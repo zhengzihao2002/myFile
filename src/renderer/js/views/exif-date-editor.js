@@ -105,6 +105,8 @@
       // ----- scan -----
       const reviewGps = { checked: true };
       async function startReview(res) {
+        const continuing = scan && scan.scanId === res.scanId;
+        const selectedPath = continuing && current ? current.path : null;
         ++outcomeToken;
         ++mediaToken;
         scan = res;
@@ -114,21 +116,30 @@
         nextBtn.classList.toggle("hidden", single);
         zones = res.zones;
         rows.clear();
-        status.clear();
-        decisions.clear();
-        historyId = null;
-        savedPaths.clear();
+        if (!continuing) {
+          status.clear();
+          decisions.clear();
+          savedPaths.clear();
+          tab = "todo";
+        }
+        historyId = res.historyId || null;
+        for (const [file, state] of res.savedPaths || []) {
+          savedPaths.add(file);
+          if (!status.has(file)) status.set(file, state);
+        }
         current = null;
         outcome = null;
         banner = null;
         bulkGps = false;
         for (const r of res.rows) rows.set(r.path, r);
-        tab = "todo";
+        for (const file of status.keys()) if (!rows.has(file)) status.delete(file);
+        for (const file of decisions.keys()) if (!rows.has(file)) decisions.delete(file);
         review.classList.remove("hidden");
         loading.classList.add("hidden");
         renderLeft();
         MF.refreshHeader();
-        const first = todoRows()[0];
+        const list = allRows().filter(inTab);
+        const first = list.find((r) => r.path === selectedPath) || list[0];
         if (first) await select(first);
         else renderEmpty();
       }
@@ -235,7 +246,7 @@
 
       async function runScanAgain() {
         if (!scan || saving) return;
-        return openPaths(scan.paths);
+        return openPaths(scan.paths, { fresh: true });
       }
 
       async function undoAll() {
@@ -579,14 +590,14 @@
 
       // All Modify inputs use this queue, including already-agreeing files and
       // files without dates. Only discovery differs from the one-file editor.
-      async function openPaths(paths) {
+      async function openPaths(paths, { fresh = false } = {}) {
+        const previous = !fresh && paths.length ? scan : null;
         const token = ++scanToken;
         ++outcomeToken;
         ++mediaToken;
         if (scanJob) scanJob.cancel();
         scanJob = null;
-        scan = null;
-        current = null;
+        if (!previous) { scan = null; current = null; }
         outcome = null;
         banner = null;
         review.classList.add("hidden");
@@ -601,25 +612,25 @@
           replace(loading, MF.Empty({ iconName: "clock", title: "Finishing the current save…", text: "Your new selection will open next." }));
           return;
         }
-        const label = h("span", "Finding photos and videos…");
+        const label = h("span", previous ? "Updating file selection…" : "Finding photos and videos…");
         const bar = h("div");
         const progress = h("div.progress.indeterminate", { attrs: { role: "progressbar", "aria-label": "Reading files", "aria-valuemin": "0", "aria-valuemax": "100" } }, bar);
         const percent = h("span.pct");
-        const count = h("span.l", "Finding files…");
+        const count = h("span.l", previous ? "Reusing files already read…" : "Finding files…");
         const speed = h("span.r", "measuring speed…");
         const active = h("div.current");
         const cancel = MF.Button("Cancel", { onClick: () => scanJob && scanJob.cancel() });
         replace(loading, h("div.busy-card", h("div.title", h("div.spinner"), label), h("div.bar-row", progress, percent), h("div.detail", count, speed), active, h("div.foot", cancel)));
-        let latest = { phase: "find", found: 0 };
-        let phase = "find";
+        let latest = { phase: previous ? "update" : "find", found: 0 };
+        let phase = latest.phase;
         let rate = MF.rateTracker("items", "files");
         function showProgress(p) {
           if (token !== scanToken) return;
           if (phase !== p.phase) { phase = p.phase; rate = MF.rateTracker("items", "files"); }
           latest = p;
           const reading = p.phase === "read";
-          label.textContent = reading ? "Reading dates…" : "Finding photos and videos…";
-          count.textContent = reading ? `${fmt.num(p.done)} of ${fmt.num(p.total)} files` : `${fmt.num(p.found)} files found`;
+          label.textContent = reading ? "Reading dates…" : p.phase === "update" ? "Updating file selection…" : "Finding photos and videos…";
+          count.textContent = reading ? `${fmt.num(p.done)} of ${fmt.num(p.total)} files` : p.phase === "update" ? "Reusing files already read…" : `${fmt.num(p.found)} files found`;
           speed.textContent = rate(reading ? p.done : p.found, reading ? p.total : undefined);
           const ratio = reading && p.total ? p.done / p.total : null;
           progress.classList.toggle("indeterminate", ratio === null);
@@ -631,7 +642,7 @@
           replace(active, names.map((name) => h("div", name)));
         }
         const timer = setInterval(() => showProgress(latest), 1000);
-        const job = scanJob = api.start("exif.batchScan", { paths, options: { reviewAll: true, useGps: reviewGps.checked } }, { onProgress: showProgress });
+        const job = scanJob = api.start("exif.batchScan", { paths, scanId: previous ? previous.scanId : undefined, options: { reviewAll: true, useGps: reviewGps.checked } }, { onProgress: showProgress });
         try {
           const res = await job.promise;
           if (token !== scanToken) return;
@@ -645,7 +656,7 @@
         }
       }
 
-      const openFile = (file) => openPaths([file]);
+      const openFile = (file) => openPaths([file], { fresh: true });
 
       return { el: root, openFile, openPaths };
     }

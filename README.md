@@ -21,6 +21,8 @@
 
 The **Clear** button removes loaded files and results while keeping the current tab and options. Folder date scans show progress, files per second and the names in the metadata batch being read.
 
+Adding or removing files in the date editor reuses the existing folder scan, metadata, per-file choices and review history. Only newly included files are read. Use **Scan again** to refresh folder contents and metadata from disk.
+
 You always see a table of *current → new* values before anything is written, and changes can be undone from History. The one exception is the advanced *Copy every metadata tag* option, which says so.
 
 ![EXIF Show](docs/screenshots/exif-show.png)
