@@ -962,7 +962,15 @@ select.select {
 .copy-choice:has(input:checked) { border-color: var(--accent); background: var(--accent-softer); }
 .copy-choice:has(input:focus-visible) { outline: 3px solid var(--accent-ring); outline-offset: 2px; }
 .copy-choice:has(input:disabled) { opacity: .5; cursor: default; }
-.copy-choice .copy-checkbox { appearance: auto; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); cursor: inherit; }
+.copy-choice .copy-checkbox { appearance: none; display: grid; place-content: center; width: 18px; height: 18px; margin: 1px 0 0; border: 1.5px solid var(--line-strong); border-radius: 5px; background: var(--surface-2); cursor: inherit; transition: background .15s, border-color .15s; }
+.copy-choice .copy-checkbox::before { content: ""; width: 9px; height: 5px; border-left: 2px solid var(--accent-ink); border-bottom: 2px solid var(--accent-ink); transform: translateY(-1px) rotate(-45deg); opacity: 0; transition: opacity .15s; }
+.copy-choice .copy-checkbox:checked { background: var(--accent); border-color: var(--accent); }
+.copy-choice .copy-checkbox:checked::before { opacity: 1; }
+.copy-choice .copy-checkbox:focus-visible { outline: none; }
+@media (forced-colors: active) {
+  .copy-choice .copy-checkbox { appearance: auto; }
+  .copy-choice .copy-checkbox::before { display: none; }
+}
 .copy-choice > svg.i { width: 20px; height: 20px; color: var(--muted); pointer-events: none; }
 .copy-choice:has(input:checked) > svg.i { color: var(--accent); }
 .copy-choice-title { display: block; font-weight: 550; font-size: 13px; line-height: 20px; }
