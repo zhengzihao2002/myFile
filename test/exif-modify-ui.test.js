@@ -97,6 +97,85 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     assert.equal(await page.locator(".bt-list").isVisible(), false);
   });
 
+  await t.test("Show to single-file Save to a larger selection keeps Saved status, resume and shared Undo", async (t) => {
+    const root = tmpDir("saved-single-expands");
+    const a = await photo(root, "a-saved.jpg");
+    const b = await photo(root, "b-new.jpg");
+    const before = [a, b].map(file => fs.statSync(file).mtimeMs);
+    const page = await pageFor(t);
+    const scans = [];
+    page.on("request", req => {
+      if (req.url().endsWith("/task") && req.postDataJSON().name === "exif.batchScan") scans.push(req.postDataJSON().payload);
+    });
+    await page.evaluate(file => MF.go("exif-show", { paths: [file] }), a);
+    await page.getByRole("button", { name: "Use for file dates", exact: true }).click();
+    await currentFile(page, "a-saved.jpg");
+    await page.getByRole("button", { name: "Everything follows the EXIF date", exact: false }).click();
+    const saved = page.waitForResponse(res => res.url().endsWith("/task") && res.request().postDataJSON().name === "exif.batchApply");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    const first = (await (await saved).json()).result;
+    await page.getByRole("button", { name: "Undo", exact: true }).waitFor();
+    assert.equal(first.ok, 1);
+    assert.equal(scans.length, 1, "saving a single file must not discard its review through a fresh scan");
+    await dropPaths(page, [b]);
+    await currentFile(page, "b-new.jpg");
+    assert.equal(scans.length, 2);
+    assert.ok(scans[1].scanId, "adding a file continues the existing review");
+    assert.deepEqual(await page.locator(".bt-name").allTextContents(), ["b-new.jpg"]);
+    const savedTab = page.locator(".bt-list .tab").filter({ hasText: /^Saved/ });
+    assert.match(await savedTab.textContent(), /Saved\s*1/);
+    await savedTab.click();
+    await currentFile(page, "a-saved.jpg");
+    assert.deepEqual(await page.locator(".bt-name").allTextContents(), ["a-saved.jpg"]);
+    await page.locator(".bt-list .tab").filter({ hasText: /^To do/ }).click();
+    await currentFile(page, "b-new.jpg");
+    const persisted = page.waitForResponse(res => res.url().endsWith("/task") && res.request().postDataJSON().name === "exif.reviewSave");
+    await page.getByRole("button", { name: "Save session", exact: true }).click();
+    await (await persisted).finished();
+    await page.reload();
+    await currentFile(page, "b-new.jpg");
+    assert.match(await savedTab.textContent(), /Saved\s*1/);
+    assert.deepEqual(await page.locator(".bt-name").allTextContents(), ["b-new.jpg"]);
+    const savedNext = page.waitForResponse(res => res.url().endsWith("/task") && res.request().postDataJSON().name === "exif.batchApply");
+    await page.getByRole("button", { name: "Save & next", exact: true }).click();
+    const second = (await (await savedNext).json()).result;
+    assert.equal(second.historyId, first.historyId, "the single and multi-file saves share one Undo session");
+    await page.getByText("All decided", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Undo all", exact: true }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Undo", exact: true }).click();
+    await currentFile(page, "a-saved.jpg");
+    assert.deepEqual([a, b].map(file => fs.statSync(file).mtimeMs), before);
+    assert.deepEqual(await page.locator(".bt-name").allTextContents(), ["a-saved.jpg", "b-new.jpg"]);
+    assert.match(await savedTab.textContent(), /Saved\s*0/);
+  });
+
+  await t.test("a single-file partial save remains in Saved when another photo is added", async (t) => {
+    const root = tmpDir("partial-single-expands");
+    const a = await photo(root, "a-partial.jpg");
+    const b = await photo(root, "b-new.jpg");
+    const page = await pageFor(t);
+    await dropPaths(page, [a]);
+    await currentFile(page, "a-partial.jpg");
+    await page.getByRole("button", { name: "Eastern", exact: true }).click();
+    const one = page.locator(".bt-choice.one select");
+    await one.nth(0).selectOption("modified");
+    await one.nth(1).selectOption("modified");
+    const saved = page.waitForResponse(res => res.url().endsWith("/task") && res.request().postDataJSON().name === "exif.batchApply");
+    const persisted = page.waitForResponse(res => res.url().endsWith("/task") && res.request().postDataJSON().name === "exif.reviewSave" && res.request().postDataJSON().payload.state.status.some(([file, state]) => file === a && state === "partial"));
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    assert.equal((await (await saved).json()).result.results[0].agree, false);
+    await page.getByRole("button", { name: "Undo", exact: true }).waitFor();
+    await (await persisted).finished();
+    await page.reload();
+    await currentFile(page, "a-partial.jpg");
+    await dropPaths(page, [b]);
+    await currentFile(page, "b-new.jpg");
+    assert.deepEqual(await page.locator(".bt-name").allTextContents(), ["b-new.jpg"]);
+    await page.locator(".bt-list .tab").filter({ hasText: /^Saved/ }).click();
+    await currentFile(page, "a-partial.jpg");
+    assert.match(await page.locator(".bt-item").textContent(), /Saved, still differs/);
+  });
+
   await t.test("mixed loose photos and videos retain individual choices, save in order, and undo together", async (t) => {
     const root = tmpDir("modify-ui-mixed");
     const photoPath = await photo(root, "a-photo.jpg");

@@ -178,7 +178,9 @@
         renderWarnings(res.skipped || []);
         renderLeft();
         MF.refreshHeader();
-        const list = allRows().filter(inTab);
+        // The compact editor has no visible tabs: keep its file accessible even
+        // when it is already Saved (including when a saved session is resumed).
+        const list = single ? allRows() : allRows().filter(inTab);
         const first = list.find((r) => r.path === selectedPath) || list[0];
         if (first) await select(first);
         else renderEmpty();
@@ -592,19 +594,20 @@
             return;
           }
           historyId = res.historyId || historyId;
+          failures.delete(row.path);
+          savedPaths.add(row.path);
+          status.set(row.path, r.agree === false ? "partial" : "saved");
           if (single) {
             const note = r.agree === false ? "Saved, but the dates still differ." : "Saved. Folder dates were kept.";
-            const reopened = openFile(row.path);
-            const reloadToken = scanToken;
-            await reopened;
-            if (reloadToken !== scanToken || !current || current.path !== row.path) return;
+            // Apply already returns fresh rows. Keep this review and its saved
+            // status/Undo identity when the next drop expands it into a queue.
+            refreshCounts();
+            await select(rows.get(row.path) || row);
+            if (token !== scanToken || !current || current.path !== row.path) return;
             banner = MF.undoCallout(r.agree === false ? "amber" : "green", h("span", h("b", note), h("div.bt-chgs", lineEls(lines))), res.historyId, () => openFile(row.path));
             renderPanel();
             return;
           }
-          failures.delete(row.path);
-          savedPaths.add(row.path);
-          status.set(row.path, r.agree === false ? "partial" : "saved");
           MF.toast(`Saved ${row.name}`, { kind: r.agree === false ? "warn" : "success", timeout: 9000, detail: lines.map((l) => `${l.label}: ${l.from} → ${l.to}`).join("\n") || undefined });
           refreshCounts();
           advance();
