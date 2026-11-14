@@ -219,8 +219,15 @@ async function gatherTargets(ctx, reference, targets, options, task) {
   return { files: list, skipped, droppedReference: list.length !== files.length };
 }
 
+function copyOptions(options = {}) {
+  // Keep older callers' combined switch working; explicit choices take priority.
+  const created = Boolean(options.created ?? options.fileDates ?? true);
+  const modified = Boolean(options.modified ?? options.fileDates ?? true);
+  return { date: true, gps: true, camera: false, all: false, ...options, created, modified, fileDates: created || modified };
+}
+
 async function copyPlan(ctx, { reference, targets, options = {} }, task) {
-  const opts = { date: true, gps: true, camera: false, all: false, fileDates: true, ...options };
+  const opts = copyOptions(options);
   try {
     if (!(await fs.promises.stat(reference)).isFile()) throw new Error();
   } catch {
@@ -253,9 +260,9 @@ async function copyPlan(ctx, { reference, targets, options = {} }, task) {
     const gpsChange = Boolean(opts.gps && refInfo.gps && cur.gps !== ref.gps);
     const cameraChange = Boolean(opts.camera && Object.keys(refInfo.camera).length && cur.camera !== ref.camera);
     const allChange = Boolean(opts.all && !sameTags(allTags.get(reference), allTags.get(file)));
-    const createdChange = Boolean(opts.fileDates && refMs !== null && st && birthOk && Math.abs(st.birthtimeMs - refMs) > tol);
-    const modifiedChange = Boolean(opts.fileDates && refMs !== null && st && Math.abs(st.mtimeMs - refMs) > tol);
-    const changes = { date: dateChange, gps: gpsChange, camera: cameraChange, all: allChange, fileDates: createdChange || modifiedChange };
+    const createdChange = Boolean(opts.created && refMs !== null && st && birthOk && Math.abs(st.birthtimeMs - refMs) > tol);
+    const modifiedChange = Boolean(opts.modified && refMs !== null && st && Math.abs(st.mtimeMs - refMs) > tol);
+    const changes = { date: dateChange, gps: gpsChange, camera: cameraChange, all: allChange, created: createdChange, modified: modifiedChange, fileDates: createdChange || modifiedChange };
     rows.push({
       path: file,
       name: path.basename(file),
@@ -266,6 +273,8 @@ async function copyPlan(ctx, { reference, targets, options = {} }, task) {
         gps: opts.gps && refInfo.gps ? ref.gps : cur.gps,
         camera: opts.camera && ref.camera ? ref.camera : cur.camera,
         fileMs: opts.fileDates && refMs !== null ? refMs : null,
+        createdMs: opts.created ? refMs : null,
+        modifiedMs: opts.modified ? refMs : null,
       },
       changes,
       // A file is only written when something about it would actually change.
@@ -290,6 +299,7 @@ async function copyPlan(ctx, { reference, targets, options = {} }, task) {
     skipped,
     warnings,
     options: opts,
+    birthSupported: birthOk,
   };
 }
 
@@ -308,7 +318,7 @@ async function snapshotTags(ctx, file, writes, signal) {
 }
 
 async function copyApply(ctx, { reference, targets, options = {} }, task) {
-  const opts = { date: true, gps: true, camera: false, all: false, fileDates: true, ...options };
+  const opts = copyOptions(options);
   const plan = await copyPlan(ctx, { reference, targets, options: opts }, { ...task, progress: () => {} });
   const refInfo = (await readInfos(ctx, [reference], { signal: task.signal })).get(reference);
   // Targets whose picture should be put back to the reference's (it was flipped, rotated…).
@@ -340,6 +350,7 @@ async function copyApply(ctx, { reference, targets, options = {} }, task) {
       index++;
       const writes = buildWrites(refInfo, opts, row.movie);
       try {
+        const st = await fs.promises.lstat(row.path);
         if (row.restore) {
           // The old version goes to the Trash; the target becomes an exact copy of the reference.
           const tmp = path.join(path.dirname(row.path), `.myfile-restore-${process.pid}-${index}${path.extname(row.path)}`);
@@ -354,13 +365,13 @@ async function copyApply(ctx, { reference, targets, options = {} }, task) {
           await fs.promises.rename(tmp, row.path);
           restored.push(row.path);
         }
-        const st = await fs.promises.lstat(row.path);
         undoTimes.push({ path: row.path, birthMs: st.birthtimeMs, mtimeMs: st.mtimeMs, atimeMs: st.atimeMs });
-        if (!opts.all && !row.restore) undoExif.push({ path: row.path, tags: await snapshotTags(ctx, row.path, writes, task.signal) });
+        if (!opts.all && !row.restore && writes.length) undoExif.push({ path: row.path, tags: await snapshotTags(ctx, row.path, writes, task.signal) });
         checkpoint();
         const extraArgs = opts.all ? ["-tagsFromFile", reference, "-all:all"] : [];
         // A restored file is already a copy of the reference; only its file dates may still need setting.
-        const res = row.restore ? { warnings: [], updated: 1 } : await ctx.et.write(row.path, writes, { extraArgs, signal: task.signal });
+        let res = { warnings: [], updated: row.restore ? 1 : 0 };
+        if (!row.restore && (writes.length || opts.all)) res = await ctx.et.write(row.path, writes, { extraArgs, signal: task.signal });
         results.push({ path: row.path, name: row.name, ok: true, restored: row.restore, warnings: res.warnings, updated: res.updated > 0 });
         succeeded.push(row.path);
       } catch (err) {
@@ -375,14 +386,22 @@ async function copyApply(ctx, { reference, targets, options = {} }, task) {
   }
 
   let timeFailures = [];
-  if (opts.fileDates && refInfo.date && succeeded.length) {
+  if (succeeded.length) {
     task.progress({ done: rows.length, total: rows.length, phase: "dates" });
-    const ms = refInfo.date.moment.ms;
-    const res = await applyTimes(succeeded.map((p) => ({ path: p, birthMs: ms, mtimeMs: ms })));
+    const ms = refInfo.date ? refInfo.date.moment.ms : null;
+    const originals = new Map(undoTimes.map((item) => [item.path, item]));
+    // Restore unchecked timestamps after metadata/replacement writes. On macOS,
+    // changing Modified can also pull Created back, so always restore/set it last.
+    const res = await applyTimes(succeeded.map((p) => {
+      const before = originals.get(p);
+      const entry = { path: p, mtimeMs: opts.modified && ms !== null ? ms : before.mtimeMs, atimeMs: before.atimeMs };
+      if (canSetBirthtime()) entry.birthMs = opts.created && ms !== null ? ms : before.birthMs;
+      return entry;
+    }));
     timeFailures = res.failures;
     for (const f of res.failures) {
       const r = results.find((x) => x.path === f.path);
-      if (r) (r.warnings = r.warnings || []).push(f.error);
+      if (r) { r.ok = false; r.error = f.error; }
     }
   }
 

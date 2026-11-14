@@ -91,36 +91,49 @@
   // ---------------------------------------------------------------------------
 
   function buildCopy() {
-    const options = { date: true, gps: true, camera: false, fileDates: true, all: false };
+    const options = { date: true, gps: true, camera: false, created: true, modified: true, all: false };
     let plan = null;
     let job = null;
 
     const refDrop = MF.DropZone({ label: "Reference", step: 1, hint: "one file", accept: "media", title: "Drop the reference photo or video", subtitle: "Choose which metadata to copy below", glyph: "photo", onChange: () => inputsChanged() });
     const tgtDrop = MF.DropZone({ label: "Targets", step: 2, hint: "files or folders", accept: "media-or-folder", multiple: true, title: "Drop the photos and videos to change", subtitle: "Folders are searched for photos and videos", moreTitle: "Add more files or folders", glyph: "layers", onChange: () => inputsChanged() });
 
+    function copyChoice({ title, desc, iconName, key }) {
+      const input = h("input.copy-checkbox", { type: "checkbox", checked: options[key], attrs: { "aria-label": title, "aria-description": desc || "" }, on: { change: () => set(key, input.checked) } });
+      const el = h("label.copy-choice", input, icon(iconName), h("span.copy-choice-text", h("span.copy-choice-title", title), desc ? h("span.copy-choice-desc", desc) : null));
+      return { el, input, disable(value) { input.disabled = value; } };
+    }
     const metadataOptions = [
-      MF.Option({ title: "EXIF date & time", desc: "Date taken, time and stored UTC offset. Includes video dates.", checked: options.date, onChange: (v) => set("date", v) }),
-      MF.Option({ title: "GPS location", desc: "Latitude, longitude and altitude.", checked: options.gps, onChange: (v) => set("gps", v) }),
-      MF.Option({ title: "Camera & lens", desc: "Camera make, model and lens details.", checked: options.camera, onChange: (v) => set("camera", v) }),
+      copyChoice({ title: "EXIF date & time", desc: "Capture date, time and UTC offset. Includes video dates.", iconName: "clock", key: "date" }),
+      copyChoice({ title: "GPS location", desc: "Latitude, longitude and altitude.", iconName: "pin", key: "gps" }),
+      copyChoice({ title: "Camera & lens", desc: "Camera make, model and lens details.", iconName: "camera", key: "camera" }),
     ];
-    metadataOptions.forEach((o) => {
-      o.input.setAttribute("aria-label", o.el.querySelector(".title").textContent);
-      o.input.setAttribute("aria-description", o.el.querySelector(".desc").textContent);
-    });
-    const fileDates = MF.Option({ title: "Set Created & Modified", desc: "Use the reference's EXIF date, not its Created / Modified dates.", checked: options.fileDates, onChange: (v) => set("fileDates", v) });
-    const all = MF.Option({ title: "Copy all writable metadata", desc: "Includes keywords, ratings and maker notes. Cannot be undone.", checked: options.all, onChange: (v) => set("all", v) });
+    const created = copyChoice({ title: "Created date", iconName: "calendar", key: "created" });
+    const modified = copyChoice({ title: "Modified date", iconName: "clock", key: "modified" });
+    const all = copyChoice({ title: "Copy all writable metadata", desc: "Includes keywords, ratings and maker notes. Cannot be undone.", iconName: "layers", key: "all" });
     const metadataOverride = h("div.copy-override.hidden", "Metadata choices above are overridden. File-system dates remain separate.");
+
+    function fileDateCell(row, field) {
+      const current = row.current[`${field}Ms`];
+      if (!options[field]) return h("span.faint", { title: fmt.date(current) }, "Unchanged");
+      if (field === "created" && !plan.birthSupported) return h("span.faint", "macOS only");
+      const next = row.next[`${field}Ms`];
+      if (next === null) return h("span.faint", "No reference date");
+      return willChange(row) ? MF.DateChange(current, next) : h("span.faint", { title: fmt.date(current) }, "Already matches");
+    }
 
     const refSummary = h("div");
     const previewHead = h("div.card-head", h("h3", "Preview"), h("span.sub", "Nothing is changed until you apply."), h("div.right"));
     const table = MF.VirtualTable({
       maxHeight: 380,
+      rowHeight: 70,
       empty: "Add a reference and some targets to see what will change.",
       columns: [
         { label: "File", width: "minmax(180px, 1.1fr)", render: fileCell, title: (r) => r.path },
         { label: "EXIF date & time", width: "minmax(220px, 1.4fr)", render: (r) => (options.all ? h("span.muted", "Included in all metadata") : options.date ? MF.Change(fmt.exif(r.current.date), fmt.exif(r.next.date)) : h("span.faint", "not copied")) },
         { label: "GPS location", width: "minmax(200px, 1.2fr)", render: (r) => (options.all ? h("span.muted", "Included in all metadata") : options.gps ? MF.Change(r.current.gps, r.next.gps) : h("span.faint", "not copied")) },
-        { label: "Created / Modified", width: "minmax(130px, 0.7fr)", render: (r) => (!options.fileDates || r.next.fileMs === null ? h("span.faint", "not set") : r.changes.fileDates ? h("span", { title: `Created ${fmt.date(r.current.createdMs)}\nModified ${fmt.date(r.current.modifiedMs)}\n→ ${fmt.date(r.next.fileMs)}` }, "Will be set") : h("span.faint", "already right")) },
+        { label: "Created", width: "minmax(260px, 1fr)", render: (r) => fileDateCell(r, "created") },
+        { label: "Modified", width: "minmax(260px, 1fr)", render: (r) => fileDateCell(r, "modified") },
         { label: "Picture", width: "minmax(200px, 1fr)", render: pictureCell },
         { label: "Status", width: "120px", render: (r) => (willChange(r) ? h("span.badge.accent", "Will change") : h("span.badge.green", icon("check"), "Up to date")) },
       ],
@@ -209,10 +222,10 @@
           h("h4.copy-option-title", "Metadata inside the file"),
           h("div.copy-metadata-options", metadataOptions.map((o) => o.el)),
         ),
-        h("section.copy-option-section", { attrs: { "aria-label": "File-system dates" } }, h("h4.copy-option-title", "File-system dates"), fileDates.el),
+        h("section.copy-option-section", { attrs: { "aria-label": "File-system dates" } }, h("h4.copy-option-title", "File-system dates"), h("p.copy-section-help", "Set either timestamp to the reference's EXIF date, not its file-system dates."), h("div.copy-file-options", created.el, modified.el)),
         h("section.copy-option-section", { attrs: { "aria-label": "Advanced copying" } }, h("h4.copy-option-title", "Advanced"), all.el, metadataOverride),
       ),
-      h("div.card", previewHead, table.el),
+      h("div.card", previewHead, h("div.copy-preview-scroll", table.el)),
       restoreBox,
       result,
       h("div.actionbar", summary, h("span.spacer"), applyBtn),

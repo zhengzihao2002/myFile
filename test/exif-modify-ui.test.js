@@ -325,6 +325,42 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     assert.equal(await page.locator(".drop .item .name").textContent(), "fresh.jpg");
   });
 
+  await t.test("reference-copy choices have visible checkboxes/icons and independent file dates", async (t) => {
+    const page = await pageFor(t);
+    await page.getByRole("radio", { name: "Copy from a reference", exact: true }).click();
+    const choices = page.locator(".copy-options");
+    assert.equal(await choices.locator("input[type=checkbox]").count(), 6);
+    assert.equal(await choices.locator(".switch").count(), 0);
+    for (const card of await choices.locator(".copy-choice").all()) {
+      assert.equal(await card.locator("input[type=checkbox]").count(), 1);
+      assert.equal(await card.locator("svg.i").count(), 1);
+      assert.equal(await card.locator("input").evaluate((el) => getComputedStyle(el).opacity), "1");
+    }
+    const created = page.getByRole("checkbox", { name: "Created date", exact: true });
+    const modified = page.getByRole("checkbox", { name: "Modified date", exact: true });
+    await created.uncheck();
+    assert.equal(await modified.isChecked(), true);
+    await modified.uncheck();
+    await created.check();
+    assert.equal(await modified.isChecked(), false);
+    const all = page.getByRole("checkbox", { name: "Copy all writable metadata", exact: true });
+    await all.check();
+    for (const input of await page.locator(".copy-metadata-options input").all()) assert.equal(await input.isDisabled(), true);
+    assert.equal(await created.isDisabled(), false);
+    assert.equal(await modified.isDisabled(), false);
+    await all.uncheck();
+    assert.equal(await created.isChecked(), true);
+    assert.equal(await modified.isChecked(), false);
+    for (const width of [1000, 1600]) {
+      await page.setViewportSize({ width, height: 1100 });
+      assert.equal(await choices.evaluate((el) => el.scrollWidth <= el.clientWidth), true);
+      assert.equal(await page.locator(".copy-metadata-options").evaluate((el) => {
+        const cards = [...el.children].map((card) => card.getBoundingClientRect());
+        return cards.every((card, i) => !i || card.left >= cards[i-1].right + 8 || card.top >= cards[i-1].bottom + 8);
+      }), true, "each checkbox stays inside a physically separate card");
+    }
+  });
+
   await t.test("Clear keeps both Modify tabs' options and the active tab while removing inputs", async (t) => {
     const root = tmpDir("clear-options");
     const a = await photo(root, "a.jpg");
@@ -332,7 +368,7 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     const page = await pageFor(t);
     await page.getByRole("radio", { name: "Copy from a reference", exact: true }).click();
     await page.getByRole("checkbox", { name: "Camera & lens", exact: true }).click();
-    await page.getByRole("checkbox", { name: /^Set Created & Modified/ }).uncheck();
+    await page.getByRole("checkbox", { name: "Modified date", exact: true }).uncheck();
     await page.getByRole("radio", { name: "Use each file's own date", exact: true }).click();
     await dropPaths(page, [a, b]);
     await currentFile(page, "a.jpg");
@@ -346,7 +382,8 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     assert.equal(await page.locator(".bt-gps input").isChecked(), false);
     await page.getByRole("radio", { name: "Copy from a reference", exact: true }).click();
     assert.equal(await page.getByRole("checkbox", { name: "Camera & lens", exact: true }).isChecked(), true);
-    assert.equal(await page.getByRole("checkbox", { name: /^Set Created & Modified/ }).isChecked(), false);
+    assert.equal(await page.getByRole("checkbox", { name: "Created date", exact: true }).isChecked(), true);
+    assert.equal(await page.getByRole("checkbox", { name: "Modified date", exact: true }).isChecked(), false);
     await page.getByRole("button", { name: "Clear", exact: true }).click();
     assert.equal(await page.getByRole("radio", { name: "Copy from a reference", exact: true }).getAttribute("aria-checked"), "true");
   });
