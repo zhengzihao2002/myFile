@@ -95,16 +95,21 @@
     let plan = null;
     let job = null;
 
-    const refDrop = MF.DropZone({ label: "Reference", step: 1, hint: "one file", accept: "media", title: "Drop the reference photo or video", subtitle: "Its date, time zone and location are copied", glyph: "photo", onChange: () => inputsChanged() });
+    const refDrop = MF.DropZone({ label: "Reference", step: 1, hint: "one file", accept: "media", title: "Drop the reference photo or video", subtitle: "Choose which metadata to copy below", glyph: "photo", onChange: () => inputsChanged() });
     const tgtDrop = MF.DropZone({ label: "Targets", step: 2, hint: "files or folders", accept: "media-or-folder", multiple: true, title: "Drop the photos and videos to change", subtitle: "Folders are searched for photos and videos", moreTitle: "Add more files or folders", glyph: "layers", onChange: () => inputsChanged() });
 
-    const chips = [
-      MF.ChipToggle({ label: "Date & time", checked: options.date, iconName: "clock", onChange: (v) => set("date", v) }),
-      MF.ChipToggle({ label: "Location", checked: options.gps, iconName: "pin", onChange: (v) => set("gps", v) }),
-      MF.ChipToggle({ label: "Camera & lens", checked: options.camera, iconName: "camera", onChange: (v) => set("camera", v) }),
+    const metadataOptions = [
+      MF.Option({ title: "EXIF date & time", desc: "Date taken, time and stored UTC offset. Includes video dates.", checked: options.date, onChange: (v) => set("date", v) }),
+      MF.Option({ title: "GPS location", desc: "Latitude, longitude and altitude.", checked: options.gps, onChange: (v) => set("gps", v) }),
+      MF.Option({ title: "Camera & lens", desc: "Camera make, model and lens details.", checked: options.camera, onChange: (v) => set("camera", v) }),
     ];
-    const fileDates = MF.Option({ title: "Also set the files' created and modified dates", desc: "So Finder shows the same date as the photo itself.", checked: options.fileDates, onChange: (v) => set("fileDates", v) });
-    const all = MF.Option({ title: "Copy every metadata tag", desc: "Advanced. Copies all writable tags (keywords, ratings, maker notes…). This can't be undone.", checked: options.all, onChange: (v) => set("all", v) });
+    metadataOptions.forEach((o) => {
+      o.input.setAttribute("aria-label", o.el.querySelector(".title").textContent);
+      o.input.setAttribute("aria-description", o.el.querySelector(".desc").textContent);
+    });
+    const fileDates = MF.Option({ title: "Set Created & Modified", desc: "Use the reference's EXIF date, not its Created / Modified dates.", checked: options.fileDates, onChange: (v) => set("fileDates", v) });
+    const all = MF.Option({ title: "Copy all writable metadata", desc: "Includes keywords, ratings and maker notes. Cannot be undone.", checked: options.all, onChange: (v) => set("all", v) });
+    const metadataOverride = h("div.copy-override.hidden", "Metadata choices above are overridden. File-system dates remain separate.");
 
     const refSummary = h("div");
     const previewHead = h("div.card-head", h("h3", "Preview"), h("span.sub", "Nothing is changed until you apply."), h("div.right"));
@@ -113,9 +118,9 @@
       empty: "Add a reference and some targets to see what will change.",
       columns: [
         { label: "File", width: "minmax(180px, 1.1fr)", render: fileCell, title: (r) => r.path },
-        { label: "Date taken", width: "minmax(220px, 1.4fr)", render: (r) => (options.date ? MF.Change(fmt.exif(r.current.date), fmt.exif(r.next.date)) : h("span.faint", "not copied")) },
-        { label: "Location", width: "minmax(200px, 1.2fr)", render: (r) => (options.gps ? MF.Change(r.current.gps, r.next.gps) : h("span.faint", "not copied")) },
-        { label: "File dates", width: "minmax(130px, 0.7fr)", render: (r) => (!options.fileDates || r.next.fileMs === null ? h("span.faint", "not set") : r.changes.fileDates ? h("span", { title: `Created ${fmt.date(r.current.createdMs)}\nModified ${fmt.date(r.current.modifiedMs)}\n→ ${fmt.date(r.next.fileMs)}` }, "Will be set") : h("span.faint", "already right")) },
+        { label: "EXIF date & time", width: "minmax(220px, 1.4fr)", render: (r) => (options.all ? h("span.muted", "Included in all metadata") : options.date ? MF.Change(fmt.exif(r.current.date), fmt.exif(r.next.date)) : h("span.faint", "not copied")) },
+        { label: "GPS location", width: "minmax(200px, 1.2fr)", render: (r) => (options.all ? h("span.muted", "Included in all metadata") : options.gps ? MF.Change(r.current.gps, r.next.gps) : h("span.faint", "not copied")) },
+        { label: "Created / Modified", width: "minmax(130px, 0.7fr)", render: (r) => (!options.fileDates || r.next.fileMs === null ? h("span.faint", "not set") : r.changes.fileDates ? h("span", { title: `Created ${fmt.date(r.current.createdMs)}\nModified ${fmt.date(r.current.modifiedMs)}\n→ ${fmt.date(r.next.fileMs)}` }, "Will be set") : h("span.faint", "already right")) },
         { label: "Picture", width: "minmax(200px, 1fr)", render: pictureCell },
         { label: "Status", width: "120px", render: (r) => (willChange(r) ? h("span.badge.accent", "Will change") : h("span.badge.green", icon("check"), "Up to date")) },
       ],
@@ -198,14 +203,14 @@
       h("div.grid2", refDrop.el, tgtDrop.el),
       refSummary,
       h(
-        "div.card.card-pad",
-        h(
-          "div.row",
-          { style: { justifyContent: "space-between", flexWrap: "wrap" } },
-          h("div", h("div", { style: { fontWeight: "650" } }, "What to copy"), h("div.muted.small", "Only the parts you pick are written.")),
-          h("div.chips", chips.map((c) => c.el)),
+        "div.card.copy-options",
+        h("div.card-head", h("h3", "What to copy")),
+        h("section.copy-option-section", { attrs: { "aria-label": "Metadata inside the file" } },
+          h("h4.copy-option-title", "Metadata inside the file"),
+          h("div.copy-metadata-options", metadataOptions.map((o) => o.el)),
         ),
-        h("div", { style: { marginTop: "10px", borderTop: "1px solid var(--line)" } }, fileDates.el, all.el),
+        h("section.copy-option-section", { attrs: { "aria-label": "File-system dates" } }, h("h4.copy-option-title", "File-system dates"), fileDates.el),
+        h("section.copy-option-section", { attrs: { "aria-label": "Advanced copying" } }, h("h4.copy-option-title", "Advanced"), all.el, metadataOverride),
       ),
       h("div.card", previewHead, table.el),
       restoreBox,
@@ -216,7 +221,8 @@
     function set(key, value) {
       options[key] = value;
       if (key === "all") {
-        chips.forEach((c) => (c.el.disabled = value));
+        metadataOptions.forEach((o) => o.disable(value));
+        metadataOverride.classList.toggle("hidden", !value);
       }
       inputsChanged();
     }
@@ -233,8 +239,8 @@
         refSummary,
         h(
           "div.grid3",
-          MF.Stat({ label: "Reference date", iconName: "calendar", value: ref.date ? fmt.exif(ref.date.split(" ")[0]) : "None", sub: ref.date ? `${ref.date.split(" ").slice(1).join(" ")}${ref.dateSource ? ` · ${ref.dateSource}` : ""}` : "No date in this file", tone: ref.date ? null : "warn" }),
-          MF.Stat({ label: "Reference location", iconName: "pin", value: ref.gps ? ref.gps.split(" · ")[0] : "None", sub: ref.gps ? h("a", { href: "#", on: { click: (e) => { e.preventDefault(); api.openExternal(MF.mapsUrl(ref.gpsValue.lat, ref.gpsValue.lon)); } } }, "Open in Maps") : "No GPS in this file" }),
+          MF.Stat({ label: "Reference EXIF date", iconName: "calendar", value: ref.date ? fmt.exif(ref.date.split(" ")[0]) : "None", sub: ref.date ? `${ref.date.split(" ").slice(1).join(" ")}${ref.dateSource ? ` · ${ref.dateSource}` : ""}` : "No date in this file", tone: ref.date ? null : "warn" }),
+          MF.Stat({ label: "Reference GPS location", iconName: "pin", value: ref.gps ? ref.gps.split(" · ")[0] : "None", sub: ref.gps ? h("a", { href: "#", on: { click: (e) => { e.preventDefault(); api.openExternal(MF.mapsUrl(ref.gpsValue.lat, ref.gpsValue.lon)); } } }, "Open in Maps") : "No GPS in this file" }),
           MF.Stat({ label: "Camera", iconName: "camera", value: ref.camera || "Unknown", sub: ref.movie ? "Video reference" : "Photo reference" }),
         ),
       );
@@ -298,7 +304,7 @@
       const ok = await MF.confirm({
         title: `Write to ${fmt.plural(n, "file")}?`,
         message: options.all
-          ? "Every metadata tag from the reference is copied into each target. This can't be undone."
+          ? "All writable metadata from the reference is copied into each target. This can't be undone."
           : `Dates, locations and camera details are written inside each file. You can undo this from the result or from History.${restore.length ? ` ${fmt.plural(restore.length, "picture")} will be replaced by a copy of the reference; the current version goes to the Trash.` : ""}`,
         confirm: "Apply",
         iconName: "wand",

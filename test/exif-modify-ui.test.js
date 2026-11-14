@@ -332,7 +332,7 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     const page = await pageFor(t);
     await page.getByRole("radio", { name: "Copy from a reference", exact: true }).click();
     await page.getByRole("checkbox", { name: "Camera & lens", exact: true }).click();
-    await page.locator(".option").filter({ hasText: "Also set the files' created" }).click();
+    await page.getByRole("checkbox", { name: /^Set Created & Modified/ }).uncheck();
     await page.getByRole("radio", { name: "Use each file's own date", exact: true }).click();
     await dropPaths(page, [a, b]);
     await currentFile(page, "a.jpg");
@@ -345,8 +345,8 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     await currentFile(page, "a.jpg");
     assert.equal(await page.locator(".bt-gps input").isChecked(), false);
     await page.getByRole("radio", { name: "Copy from a reference", exact: true }).click();
-    assert.equal(await page.getByRole("checkbox", { name: "Camera & lens", exact: true }).getAttribute("aria-checked"), "true");
-    assert.equal(await page.locator(".option").filter({ hasText: "Also set the files' created" }).locator("input").isChecked(), false);
+    assert.equal(await page.getByRole("checkbox", { name: "Camera & lens", exact: true }).isChecked(), true);
+    assert.equal(await page.getByRole("checkbox", { name: /^Set Created & Modified/ }).isChecked(), false);
     await page.getByRole("button", { name: "Clear", exact: true }).click();
     assert.equal(await page.getByRole("radio", { name: "Copy from a reference", exact: true }).getAttribute("aria-checked"), "true");
   });

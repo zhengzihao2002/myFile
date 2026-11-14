@@ -950,3 +950,18 @@ select.select {
 .bt-suggest > span { flex: 1; min-width: 0; }
 .bt-suggest svg.i { width: 14px; height: 14px; color: var(--accent); flex: none; }
 .toast .td { white-space: pre-line; }
+
+/* EXIF › Copy from a reference: keep embedded metadata and file dates distinct. */
+.copy-option-section { padding: 14px 18px; }
+.copy-option-section + .copy-option-section { border-top: 1px solid var(--line); }
+.copy-option-title { margin: 0 0 6px; color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
+.copy-metadata-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.copy-options .option { gap: 12px; }
+.copy-metadata-options .option { align-items: flex-start; padding: 14px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); }
+.copy-metadata-options .option:has(input:checked) { border-color: var(--accent); background: var(--accent-softer); }
+.copy-metadata-options .switch { margin-top: 2px; flex: none; }
+.copy-options .switch .track, .copy-options .switch .thumb { pointer-events: none; }
+.copy-override { color: var(--warn, var(--muted)); font-size: 12px; padding-bottom: 6px; }
+@media (max-width: 1100px) {
+  .copy-metadata-options { grid-template-columns: 1fr; gap: 8px; }
+}
