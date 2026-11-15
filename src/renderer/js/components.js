@@ -47,7 +47,11 @@
     const accept = ACCEPT[opts.accept || "any"];
     let infos = [];
     let generation = 0;
+    let expanded = false;
     const itemsBox = h("div.items");
+    const selectionCount = h("span.muted.small");
+    const manage = MF.Button("Manage inputs", { size: "sm", iconName: "list", onClick: () => { expanded = !expanded; renderSelection(); } });
+    const selectionBar = opts.compactSelection ? h("div.drop-selection", h("div.drop-selection-label", h("b", opts.label), selectionCount), h("span.spacer"), manage, MF.Button("Add more", { size: "sm", iconName: "plus", onClick: browse })) : null;
     const area = h(
       "div.drop-area",
       {
@@ -70,9 +74,13 @@
       "div.drop",
       { tabIndex: -1 },
       opts.label ? h("div.drop-label", opts.step ? h("span.step", String(opts.step)) : null, opts.label, opts.hint ? h("span.hint", opts.hint) : null) : null,
+      selectionBar,
       area,
       itemsBox,
     );
+    if (opts.compactSelection) root.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && expanded) { expanded = false; renderSelection(); manage.focus(); }
+    });
 
     let depth = 0;
     root.addEventListener("dragenter", (e) => {
@@ -169,6 +177,8 @@
       );
       const filled = infos.length > 0;
       root.classList.toggle("compact", filled);
+      root.classList.toggle("compact-selection", Boolean(opts.compactSelection && filled));
+      renderSelection();
       area.classList.toggle("hidden", filled && !opts.multiple);
       area.querySelector(".t").textContent = filled && opts.multiple ? opts.moreTitle || "Add more" : opts.title;
       if (!filled || !opts.multiple) area.querySelector(".s").textContent = opts.subtitle || "Drop here or click to choose";
@@ -179,6 +189,15 @@
           itemsBox.lastChild.querySelector(".x"),
         );
       }
+    }
+
+    function renderSelection() {
+      if (!selectionBar) return;
+      selectionBar.classList.toggle("hidden", !infos.length);
+      itemsBox.classList.toggle("hidden", Boolean(infos.length && !expanded));
+      selectionCount.textContent = `Selected inputs: ${fmt.num(infos.length)}`;
+      manage.setAttribute("aria-expanded", String(expanded));
+      replace(manage.querySelector("span"), expanded ? "Hide inputs" : "Manage inputs");
     }
 
     render();

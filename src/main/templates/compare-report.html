@@ -120,11 +120,11 @@
     : "These folders differ";
 
   var html = "";
-  html += '<div class="hero"><p class="eyebrow">Folder comparison</p><h1>' + esc(D.a.name) + " vs " + esc(D.b.name) + "</h1>" +
+  html += '<div class="hero"><p class="eyebrow">Folder comparison</p><h1 data-user-data>' + esc(D.a.name) + " vs " + esc(D.b.name) + "</h1>" +
     "<p>Generated " + esc(date(D.generatedAt)) + " · took " + esc((D.elapsedMs / 1000).toFixed(1)) + " s · content check: " + esc(D.options.content) + "</p>" +
     '<span class="verdict">' + (D.same ? "✓ " : "≠ ") + esc(verdict) + "</span>" +
-    '<div class="paths"><div class="path-card"><div class="path-label">Folder A</div><div class="path">' + esc(D.a.root) + "</div></div>" +
-    '<div class="path-card"><div class="path-label">Folder B</div><div class="path">' + esc(D.b.root) + "</div></div></div></div>";
+    '<div class="paths"><div class="path-card"><div class="path-label">Folder A</div><div class="path" data-user-data>' + esc(D.a.root) + "</div></div>" +
+    '<div class="path-card"><div class="path-label">Folder B</div><div class="path" data-user-data>' + esc(D.b.root) + "</div></div></div></div>";
 
   html += '<div class="grid">' +
     metric("Files", num(D.a.files) + " → " + num(D.b.files), 'Difference <span class="' + cls(fileDiff) + '">' + diff(fileDiff) + "</span>") +

@@ -11,7 +11,7 @@
 
   function kvRow(k, v, extra) {
     if (v === null || v === undefined || v === "") return null;
-    return h("div.kvr", h("div.k", k), h("div.v.selectable", v, extra || null));
+    return h("div.kvr", h("div.k", k), h("div.v.selectable", h("span", { attrs: { "data-user-data": "" } }, v), extra || null));
   }
 
   function parseWall(text) {
@@ -240,11 +240,12 @@
         const body = h("div");
         const draw = () => {
           const term = tagFilter.trim().toLowerCase();
+          const localized = label => window.MyFilePresentation ? window.MyFilePresentation.translate(label, MF.settings.language) : label;
           let total = 0;
           replace(
             body,
             r.groups.map((g) => {
-              const rows = term ? g.tags.filter((t) => `${t.tag} ${t.label} ${t.value}`.toLowerCase().includes(term)) : g.tags;
+              const rows = term ? g.tags.filter((t) => `${t.tag} ${t.label} ${localized(t.label)} ${t.value}`.toLowerCase().includes(term)) : g.tags;
               total += rows.length;
               if (!rows.length) return null;
               return h(
@@ -256,7 +257,7 @@
                     "div.tagrow",
                     { title: `${g.group}:${t.tag} — click to copy`, on: { click: () => MF.copyText(String(t.value), `${t.label} copied`) } },
                     h("div.k", t.label),
-                    h("div.v", t.value, t.note ? h("div.muted.small", t.note) : null),
+                    h("div.v", h("span", { attrs: { [/date|time/i.test(t.tag) ? "data-presentation-raw" : "data-user-data"]: "" } }, t.value), t.note ? h("div.muted.small", t.note) : null),
                   ),
                 ),
               );

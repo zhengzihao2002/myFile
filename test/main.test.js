@@ -144,6 +144,10 @@ test("main.js sets up paths, IPC, menu and quits cleanly; preload exposes the AP
     const viaPreload = await api.task("t4", "settings.get", {});
     assert.equal(viaPreload.ok, true);
     assert.equal(api.pathForFile({ path: "/x/y" }), "/x/y");
+    await api.task("language-change", "settings.set", { language: "zh-CN" });
+    assert.ok(electron.menu.some(m => m.label === "前往"), "native menu updates when language is saved");
+    assert.ok(electron.menu.find(m => m.label === "前往").submenu.some(m => m.label === "EXIF · 修改"));
+    assert.ok(electron.menu.some(m => m.role === "editMenu"), "native editing commands are retained");
 
     electron.app.emit("will-quit");
   } finally {

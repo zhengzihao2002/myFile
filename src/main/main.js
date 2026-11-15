@@ -9,6 +9,7 @@ const { ExifTool } = require("./lib/exiftool");
 const janitor = require("./lib/janitor");
 const { createContext, createHandlers, invoke } = require("./handlers");
 const { readJson, writeJson } = require("./lib/store");
+const presentation = require("../shared/presentation");
 
 // ---------------------------------------------------------------------------
 // Where things live. This must run before anything asks Electron for its
@@ -113,7 +114,9 @@ function start() {
       },
     };
     try {
-      return await invoke(handlers, name, payload, task);
+      const result = await invoke(handlers, name, payload, task);
+      if (name === "settings.set" && result.ok) buildMenu();
+      return result;
     } finally {
       running.delete(id);
     }
@@ -135,10 +138,13 @@ function start() {
 
   ipcMain.handle("myfile:dialog", async (event, opts = {}) => {
     if (!fromUs(event)) return null;
+    const tr = text => presentation.translate(text, ctx.settings.get().language);
+    opts = { ...opts, title: tr(opts.title), buttonLabel: tr(opts.buttonLabel), filters: opts.filters && opts.filters.map(filter => ({ ...filter, name: tr(filter.name) })) };
     const parent = BrowserWindow.fromWebContents(event.sender);
     if (opts.mode === "save") {
       const res = await dialog.showSaveDialog(parent, {
         title: opts.title,
+        buttonLabel: tr(opts.buttonLabel || "Save"),
         defaultPath: opts.defaultPath,
         filters: opts.filters,
         properties: ["createDirectory", "showOverwriteConfirmation"],
@@ -152,7 +158,7 @@ function start() {
     if (opts.multiple) props.push("multiSelections");
     const res = await dialog.showOpenDialog(parent, {
       title: opts.title,
-      buttonLabel: opts.buttonLabel,
+      buttonLabel: tr(opts.buttonLabel || "Open"),
       defaultPath: opts.defaultPath,
       filters: opts.filters,
       properties: props,
@@ -313,7 +319,33 @@ function start() {
         ],
       },
     ];
-    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+    const roleNames = {
+      about: "About myFile", services: "Services", hideOthers: "Hide Others", unhide: "Show All",
+      quit: "Quit myFile", close: "Close Window", help: "Help", editMenu: "Edit", windowMenu: "Window",
+      togglefullscreen: "Toggle Full Screen", resetZoom: "Actual Size", zoomIn: "Zoom In", zoomOut: "Zoom Out",
+      reload: "Reload", toggleDevTools: "Toggle Developer Tools", minimize: "Minimize", zoom: "Zoom",
+      undo: "Undo", redo: "Redo", cut: "Cut", copy: "Copy", paste: "Paste",
+      pasteAndMatchStyle: "Paste and Match Style", delete: "Delete", selectAll: "Select All",
+      startSpeaking: "Start Speaking", stopSpeaking: "Stop Speaking", front: "Bring All to Front",
+    };
+    const language = ctx.settings.get().language;
+    const localize = items => items.map(item => ({
+      ...item,
+      ...(item.label || roleNames[item.role] ? { label: presentation.translate(item.label || roleNames[item.role], language) } : {}),
+      ...(item.submenu ? { submenu: localize(item.submenu) } : {}),
+    }));
+    const menu = Menu.buildFromTemplate(localize(template));
+    // Keep Electron's complete native Edit/Window submenus, including platform
+    // commands, and translate generated entries without replacing their roles.
+    const localizeNative = current => {
+      for (const item of current.items || []) {
+        const key = Object.keys(roleNames).find(role => role.toLowerCase() === String(item.role).toLowerCase());
+        if (item.label || key) item.label = presentation.translate(key ? roleNames[key] : item.label, language);
+        if (item.submenu) localizeNative(item.submenu);
+      }
+    };
+    localizeNative(menu);
+    Menu.setApplicationMenu(menu);
   }
 
   app.setAboutPanelOptions({

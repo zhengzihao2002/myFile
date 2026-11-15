@@ -62,12 +62,13 @@
 
       const copyPane = buildCopy();
       const selfPane = buildSelf();
-      const body = h("div");
-      const el = h("div.stack", h("div", modeSeg.el), body);
+      const body = h("div.modify-body");
+      const el = h("div.stack.exif-modify", h("div.modify-modes", modeSeg.el), body);
 
       function setMode(v) {
         if (v !== "self") selfPane.cancelResume();
         mode = v;
+        el.classList.toggle("self-mode", v === "self");
         modeSeg.set(v);
         replace(body, v === "copy" ? copyPane.el : selfPane.el);
       }
@@ -252,9 +253,9 @@
         refSummary,
         h(
           "div.grid3",
-          MF.Stat({ label: "Reference EXIF date", iconName: "calendar", value: ref.date ? fmt.exif(ref.date.split(" ")[0]) : "None", sub: ref.date ? `${ref.date.split(" ").slice(1).join(" ")}${ref.dateSource ? ` · ${ref.dateSource}` : ""}` : "No date in this file", tone: ref.date ? null : "warn" }),
+          MF.Stat({ label: "Reference EXIF date", iconName: "calendar", value: ref.date ? fmt.exif(ref.date) : "None", sub: ref.date ? ref.dateSource || "" : "No date in this file", tone: ref.date ? null : "warn" }),
           MF.Stat({ label: "Reference GPS location", iconName: "pin", value: ref.gps ? ref.gps.split(" · ")[0] : "None", sub: ref.gps ? h("a", { href: "#", on: { click: (e) => { e.preventDefault(); api.openExternal(MF.mapsUrl(ref.gpsValue.lat, ref.gpsValue.lon)); } } }, "Open in Maps") : "No GPS in this file" }),
-          MF.Stat({ label: "Camera", iconName: "camera", value: ref.camera || "Unknown", sub: ref.movie ? "Video reference" : "Photo reference" }),
+          MF.Stat({ label: "Camera", iconName: "camera", value: ref.camera ? h("span", { attrs: { "data-user-data": "" } }, ref.camera) : "Unknown", sub: ref.movie ? "Video reference" : "Photo reference" }),
         ),
       );
     }
@@ -386,6 +387,7 @@
       hint: "files or folders",
       accept: "media-or-folder",
       multiple: true,
+      compactSelection: true,
       title: "Drop photos, videos or folders",
       subtitle: "Review each file one by one, including files in subfolders. Choose which date wins or change just one date.",
       moreTitle: "Add more files or folders",
@@ -400,7 +402,7 @@
       },
     });
     return {
-      el: h("div.stack", drop.el, editorBox),
+      el: h("div.stack.self-editor", drop.el, editorBox),
       clear: () => { ++resumeToken; pendingRestore = null; drop.clear(); },
       cancelResume() { ++resumeToken; },
       async resume(show) {

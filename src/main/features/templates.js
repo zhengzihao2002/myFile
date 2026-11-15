@@ -27,8 +27,14 @@ function safeJson(value) {
 function renderTemplate(name, values) {
   let html = fs.readFileSync(path.join(DIR, name), "utf8");
   for (const [key, value] of Object.entries(values)) {
+    if (key === "PREFERENCES") continue;
     const text = key.startsWith("DATA") ? safeJson(value) : escapeHtml(value);
     html = html.split(`__${key}__`).join(text);
+  }
+  if (values.PREFERENCES) {
+    const preferences = require("../../shared/presentation").normalize(values.PREFERENCES);
+    const shared = ["zh-CN.js", "presentation.js"].map(file => fs.readFileSync(path.join(__dirname, "..", "..", "shared", file), "utf8")).join("\n").replace(/<\/script/gi, "<\\/script");
+    html = html.replace("</body>", `<script>\n${shared}\nMyFilePresentation.observe(document,()=>(${safeJson(preferences)}));\n</script>\n</body>`);
   }
   return html;
 }

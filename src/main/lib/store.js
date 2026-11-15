@@ -22,6 +22,8 @@ function writeJson(file, value) {
 
 const DEFAULT_SETTINGS = {
   theme: "system", // system | light | dark
+  language: "en", // en | zh-CN
+  timeFormat: "24", // 24 | 12 (AM/PM); presentation only
   toleranceMs: 1000, // dates closer than this count as equal (no screen for it; drives' own time steps are added automatically)
   parallelFiles: "auto", // files read or copied at the same time: auto | 1 .. 16
   confirmBeforeApply: true,
@@ -33,6 +35,8 @@ class Settings {
   constructor(dataDir) {
     this.file = path.join(dataDir, "settings.json");
     this.values = { ...DEFAULT_SETTINGS, ...readJson(this.file, {}) };
+    if (!["en", "zh-CN"].includes(this.values.language)) this.values.language = "en";
+    if (!["24", "12"].includes(this.values.timeFormat)) this.values.timeFormat = "24";
   }
 
   get() {
@@ -41,6 +45,8 @@ class Settings {
 
   set(patch) {
     for (const [key, value] of Object.entries(patch || {})) {
+      if (key === "language" && !["en", "zh-CN"].includes(value)) continue;
+      if (key === "timeFormat" && !["24", "12"].includes(value)) continue;
       if (key in DEFAULT_SETTINGS) this.values[key] = value;
     }
     writeJson(this.file, this.values);

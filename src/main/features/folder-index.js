@@ -130,7 +130,7 @@ async function generateIndex(ctx, { folder, output, options = {} }, task) {
     tree: buildTree(scan.items, snapshots),
   };
 
-  const html = renderTemplate("folder-index.html", { TITLE: `${data.name} — folder index`, DATA: data });
+  const html = renderTemplate("folder-index.html", { TITLE: `${data.name} — folder index`, DATA: data, PREFERENCES: ctx.settings.get() });
   await fs.promises.mkdir(path.dirname(output), { recursive: true });
   await fs.promises.writeFile(output, html, "utf8");
   const bytes = Buffer.byteLength(html);

@@ -156,7 +156,7 @@
     },
     nice(ms) {
       if (!Number.isFinite(ms) || !Number.isFinite(new Date(ms).getTime())) return "—";
-      return new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium", timeZone: "UTC" }) + " UTC";
+      return fmt.date(ms);
     },
     ago(ms) {
       const s = (Date.now() - ms) / 1000;
@@ -164,7 +164,7 @@
       if (s < 3600) return `${Math.round(s / 60)} min ago`;
       if (s < 86400) return `${Math.round(s / 3600)} h ago`;
       if (s < 86400 * 7) return `${Math.round(s / 86400)} d ago`;
-      return new Date(ms).toLocaleDateString(undefined, { dateStyle: "medium", timeZone: "UTC" }) + " UTC";
+      return fmt.date(ms).split(" ")[0] + " UTC";
     },
     duration(ms) {
       if (!Number.isFinite(ms)) return "—";
@@ -245,7 +245,7 @@
     platform: bridge ? bridge.platform : "unknown",
     start,
     run: (name, payload, opts) => start(name, payload, opts).promise,
-    dialog: (opts) => bridge.dialog(opts),
+    dialog: (opts) => bridge.dialog({ ...opts, title: window.MyFilePresentation ? window.MyFilePresentation.translate(opts.title, MF.settings && MF.settings.language) : opts.title }),
     reveal: (p) => bridge.reveal(p),
     open: (p) => bridge.open(p),
     openExternal: (u) => bridge.openExternal(u),
@@ -259,7 +259,7 @@
   // ---------------------------------------------------------------------------
 
   let toastBox = null;
-  MF.toast = function toast(title, { detail, kind = "info", action, timeout = 4200 } = {}) {
+  MF.toast = function toast(title, { detail, kind = "info", action, dismissible = false, timeout = 4200 } = {}) {
     if (!toastBox) {
       toastBox = h("div.toasts");
       document.body.appendChild(toastBox);
@@ -271,6 +271,7 @@
       h("div.ti", icon(iconName)),
       h("div.tb", h("div.tt", title), detail ? h("div.td", detail) : null),
       action ? h("button.btn.sm.tact", { on: { click: () => { action.run(); close(); } } }, action.label) : null,
+      dismissible ? h("button.btn.ghost.sm.icon", { title: "Dismiss", attrs: { "aria-label": "Dismiss" }, on: { click: close } }, icon("x")) : null,
     );
     toastBox.appendChild(el);
     let timer = setTimeout(close, timeout);

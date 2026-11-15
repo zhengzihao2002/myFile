@@ -20,6 +20,7 @@
       const rows = new Map(); // path -> row
       const status = new Map(); // path -> "saved" | "partial" | "skipped"
       const decisions = new Map(); // path -> decision state
+      const expandedCards = new Map(); // disclosure state for the current file
       let tab = "todo";
       let current = null;
       let outcome = null;
@@ -60,11 +61,12 @@
       let tabs = null;
       const listHost = h("div.bt-listhost");
       const zoneLine = h("div.bt-zoneline");
-      const bulkHost = h("div.bt-bulk");
+      const bulkHost = h("div.bt-bulk-body");
+      const bulkPanel = h("details.bt-bulk", h("summary", icon("chevron"), "Batch actions"), bulkHost);
       const footHost = h("div.bt-foot");
       const searchInput = h("input.select", { type: "search", placeholder: "Search names or paths…", attrs: { "aria-label": "Search review files" }, on: { input: () => { search = searchInput.value; applyFilter(); } } });
       const filterInput = h("select.select", { attrs: { "aria-label": "Filter review files" }, on: { change: () => { filter = filterInput.value; applyFilter(); } } }, [["all", "All files"], ["photos", "Photos"], ["videos", "Videos"], ["unknown", "Unknown time zone"], ["no-date", "Missing EXIF date"], ["matching", "Matching dates"], ["failed", "Failed saves"]].map(([value, label]) => h("option", { value }, label)));
-      const listCol = h("div.bt-list", h("div.bt-listhead", countsLine, zoneLine, h("div.bt-tools", searchInput, filterInput), tabsHost), listHost, bulkHost, footHost);
+      const listCol = h("div.bt-list", h("div.bt-listhead", countsLine, zoneLine, h("div.bt-tools", searchInput, filterInput), tabsHost), listHost, bulkPanel, footHost);
 
       const stageName = h("div.fname");
       const stageCount = h("span.muted.small.num");
@@ -285,6 +287,7 @@
       let bulkGps = false;
       const bulkRows = () => todoRows().filter((r) => !r.needsZone || (bulkGps && r.suggestZone));
       function renderBulk(todoAll) {
+        bulkPanel.classList.toggle("hidden", !todoAll);
         const todo = bulkRows().length;
         const waiting = todoAll - todo;
         const suggestable = todoRows().filter((r) => r.needsZone && r.suggestZone).length;
@@ -336,6 +339,7 @@
 
       async function select(row) {
         if (saving) return;
+        if (!current || current.path !== row.path) expandedCards.clear();
         current = row;
         persistNow();
         outcome = null;
@@ -487,10 +491,18 @@
       }
       const lineEls = (lines) => lines.map((l) => h("div.bt-chg", h("span.bt-chg-l", l.label), h("span.bt-chg-old", l.from), icon("arrow"), h("span.bt-chg-new", l.to)));
 
+      function disclosure(id, heading, body, defaultOpen = false) {
+        const card = h(`details.kv.bt-disclosure.bt-${id}-card`, {
+          open: expandedCards.has(id) ? expandedCards.get(id) : defaultOpen,
+          on: { toggle: () => { if (card.isConnected) expandedCards.set(id, card.open); } },
+        }, heading, body);
+        return card;
+      }
+
       function changesCard(o) {
         if (o.needsZone) return null;
         const lines = changeLines(o);
-        return h("div.kv", h("div.kvh", icon("check"), "What will change"), h("div.bt-chgs", lines.length ? lineEls(lines) : h("div.muted.small", "Nothing would change.")));
+        return disclosure("changes", h("summary.kvh", icon("chevron"), h("span", "What will change"), h("span.badge", fmt.num(lines.length))), h("div.bt-chgs", lines.length ? lineEls(lines) : h("div.muted.small", "Nothing would change.")));
       }
 
       function tzCard(o, d) {
@@ -507,9 +519,9 @@
         const stored = o.tzOriginal.startsWith("none") ? (o.movie ? "UTC; local offset not stored" : "Not stored") : o.tzOriginal;
         const nextOffset = `UTC${offsetValue(o.tz.offsetMin)}`;
         const nowText = h("div.bt-tzmain", changing ? h("span", h("span.bt-chg-old", stored), icon("arrow"), h("span.bt-chg-new", nextOffset)) : stored);
-        return h(
-          "div.kv",
-          h("div.kvh", icon("clock"), "Time zone", h("div.right", h(`span.badge${badgeKind ? "." + badgeKind : ""}`, badgeText))),
+        return disclosure(
+          "zone",
+          h("summary.kvh", icon("chevron"), h("span", "Time zone"), h("span.bt-zone-summary", changing ? nextOffset : stored), h("div.right", h(`span.badge${badgeKind ? "." + badgeKind : ""}`, badgeText))),
           h(
             "div.bt-tz",
             nowText,
@@ -519,12 +531,13 @@
             picker.el,
             h("div", { style: { marginTop: "8px", borderTop: "1px solid var(--line)" } }, MF.Option({ title: "Save offset in file", checked: o.writeTz || d.writeTz, onChange: (v) => setDecision({ writeTz: v }) }).el),
           ),
+          o.needsZone,
         );
       }
 
       function choiceCard(o, d) {
         const exifOn = o.hasExif;
-        const make = (value, title, sub, disabled) => h(`button.bt-choice${d.choice === value ? ".on" : ""}`, { type: "button", disabled: Boolean(disabled), on: { click: () => setDecision({ choice: value }) } }, h("div.t", title), h("div.s", sub));
+        const make = (value, title, sub, disabled) => h(`button.bt-choice${d.choice === value ? ".on" : ""}`, { type: "button", attrs: { "aria-pressed": String(d.choice === value) }, disabled: Boolean(disabled), on: { click: () => setDecision({ choice: value }) } }, h("div.t", title), h("div.s", sub));
         const oneSel = (key, opts) => {
           const s = h("select.select", opts.map(([v, l]) => h("option", { value: v }, l)));
           s.value = d[key];
@@ -540,7 +553,8 @@
             make("all-exif", "Everything follows the EXIF date", exifOn ? "Sets Created and Modified." : "No EXIF date", !exifOn),
             make("all-modified", "Everything follows Modified", exifOn ? "Sets EXIF and Created." : "Adds EXIF and sets Created."),
             o.fields.created ? make("all-created", "Everything follows Created", exifOn ? "Sets EXIF and Modified." : "Adds EXIF and sets Modified.") : null,
-            h(`div.bt-choice.one${d.choice === "one" ? ".on" : ""}`, { on: { click: (e) => e.target.tagName !== "SELECT" && setDecision({ choice: "one" }) } }, h("div.t", "Change just one"), h("div.row", { style: { gap: "6px", flexWrap: "wrap", marginTop: "6px" } }, "Set", oneSel("oneTarget", fieldOpts), "to match", oneSel("oneSrc", fieldOpts.filter(([v]) => v !== "exif" || exifOn)))),
+            make("one", "Change just one", "Choose a date and its source."),
+            d.choice === "one" ? h("div.bt-one-fields", h("label", h("span", "Set"), oneSel("oneTarget", fieldOpts)), icon("arrow"), h("label", h("span", "to match"), oneSel("oneSrc", fieldOpts.filter(([v]) => v !== "exif" || exifOn)))) : null,
           ),
         );
       }
@@ -549,12 +563,12 @@
         const o = outcome;
         if (!o) return;
         const d = decisionFor(current);
-        replace(sideScroll, banner, dateCard(o), tzCard(o, d), choiceCard(o, d), changesCard(o), single ? h("div.card.card-pad", { style: { paddingTop: "8px", paddingBottom: "8px" } }, zoneLine) : null);
+        replace(sideScroll, banner, dateCard(o), choiceCard(o, d), tzCard(o, d), changesCard(o), single ? h("div.card.card-pad", { style: { paddingTop: "8px", paddingBottom: "8px" } }, zoneLine) : null);
         const valid = (d.choice !== "" || o.writeTz) && !(d.choice === "one" && d.oneTarget === d.oneSrc && !o.writeTz) && !o.needsZone;
         const saveBtn = MF.Button(single ? "Save" : "Save & next", { kind: "primary", size: "lg", iconName: "check", disabled: !valid || !o.anything, onClick: () => save(saveBtn) });
         const skipBtn = single ? null : MF.Button("Skip", { kind: "ghost", onClick: skip });
         const saveHint = o.needsZone ? h("span.muted.small", "Choose the time zone first") : !valid ? h("span.muted.small", "Choose what should win") : !o.anything ? h("span.muted.small", "Nothing would change") : null;
-        replace(sideFoot, skipBtn, single ? null : h("span.spacer"), saveHint, saveBtn);
+        replace(sideFoot, saveHint, h("div.bt-save-actions", skipBtn, saveBtn));
       }
 
       // ----- saving -----
@@ -608,7 +622,7 @@
             renderPanel();
             return;
           }
-          MF.toast(`Saved ${row.name}`, { kind: r.agree === false ? "warn" : "success", timeout: 9000, detail: lines.map((l) => `${l.label}: ${l.from} → ${l.to}`).join("\n") || undefined });
+          MF.toast(`Saved ${row.name}`, { kind: r.agree === false ? "warn" : "success", dismissible: true, timeout: 9000, detail: lines.map((l) => `${l.label}: ${l.from} → ${l.to}`).join("\n") || undefined });
           refreshCounts();
           advance();
         } catch (err) {

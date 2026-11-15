@@ -157,6 +157,10 @@
       MF.settings = { theme: "system" };
     }
     MF.setTheme(MF.settings.theme);
+    if (window.MyFilePresentation) {
+      const presentation = window.MyFilePresentation.observe(document, () => MF.settings);
+      MF.applyPresentation = () => presentation.refresh();
+    }
     api.onMenu((msg) => {
       if (msg.action === "navigate") MF.go(msg.view);
       if (msg.action === "check-updates") MF.checkForUpdates();

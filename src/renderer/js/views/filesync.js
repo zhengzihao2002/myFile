@@ -428,7 +428,7 @@
                 },
               },
             },
-            plan.targets.map((t) => h("option", { value: String(t.index), selected: u.targets[0] === t.index }, t.name)),
+            plan.targets.map((t) => h("option", { value: String(t.index), selected: u.targets[0] === t.index, attrs: { "data-user-data": "" } }, t.name)),
           );
           return h("div.tnode", { style: { paddingLeft: "16px", height: "38px" } }, h(`span.ic${u.kind === "dir" ? "" : ".file"}`, icon(u.kind === "dir" ? "folder" : "file")), h("span.nm", u.name), h("span.sz", { style: { marginRight: "12px" } }, fmt.size(u.bytes)), select);
         });

@@ -21,6 +21,8 @@
 
 The **Clear** button removes loaded files and results while keeping the current tab and options. Date-review folder scans show per-file completion, files per second and only the files currently being read, with concurrency controlled by Settings. Unreadable files or folders are listed with their paths and reasons.
 
+The date editor fits the window: Save / Save & next stays visible, while the date cards and file queue scroll independently. A compact input bar shows **Manage inputs** for removing/revealing selections and **Add more** for adding them. Batch actions and detailed change summaries expand when needed.
+
 Adding or removing files in the date editor reuses the existing folder scan, metadata, per-file choices and review history. Only newly included files are read. Use **Scan again** to refresh folder contents and metadata from disk.
 
 Date review sessions auto-save in the app's data folder; **Save session** also saves immediately. Reopen Modify to resume loaded paths, unsaved per-file choices, skipped/saved states, position, tab and filters. Resume reads current metadata from disk, returning externally changed files to review. Clear forgets the saved review, while History and its Undo information remain. Search names or paths, and filter photos, videos, unknown zones, missing dates, matching dates or failed saves. Navigation and bulk actions follow the visible filtered queue. Bulk actions explicitly warn that their common policy overrides unsaved individual date and time-zone choices.
@@ -118,6 +120,7 @@ The folder takes about 500 MB after installing (Electron is most of it). The app
 
 ## Good to know
 
+- **Language and clock.** Settings › Appearance offers English or 简体中文 and 24-hour or 12-hour (AM/PM) times. Both preferences apply immediately, persist after reopening, and are included in exported HTML reports. Display choices leave metadata, timestamps and UTC offsets unchanged.
 - **Time zones.** Show and Modify display dates in the file's stored zone, or a zone you explicitly choose. The current Mac's time zone never changes the displayed file dates. QuickTime integer timestamps store a UTC moment, not an original local offset: they display in UTC throughout the app and metadata list. Apple's `Keys:CreationDate` and photo OffsetTime tags preserve genuine stored offsets. Dates show numeric UTC offsets without inferred city names or seasonal labels. Unzoned photo dates are never interpreted using the Mac's zone; choose/save their zone before setting file dates or converting them to video timestamps. File-system-only screens, History and HTML reports use explicit UTC dates. Inspecting dates does not rewrite the file.
 - **Creation dates** (Finder's "Created") are set through macOS's own Foundation framework, so Apple's developer tools (`SetFile`) aren't needed.
 - **Precision.** By default dates within one second of each other count as the same, which is what Finder shows. Settings › Comparing switches to exact matching, or two seconds for FAT32 drives. New dates are always written exactly.
@@ -134,6 +137,7 @@ bash scripts/dev.sh --test  # run the test suite
 
 - `src/main/`: Electron main process. `handlers.js` lists every operation; `features/` holds EXIF, Folder and FileSync; `lib/` holds ExifTool (persistent `-stay_open` processes), file dates, scanning, drive detection and copying.
 - `src/renderer/`: the interface (plain JavaScript, no build step).
+- `src/shared/`: display-only clock formatting and Chinese messages, shared by the renderer, native menus and self-contained HTML reports. Canonical dates and user data stay separate from translated display text.
 - `scripts/build-app.mjs`: assembles `myFile.app` from the Electron runtime: renames the app and its helpers, edits `Info.plist`, adds the code, ExifTool and icon, and signs it ad hoc.
 - `test/`: Node test suite (`node --test test/*.test.js`) with real ExifTool runs. `test/harness/server.js` serves the real interface in a browser, wired to the real backend, for UI work without Electron.
 - `test/exif-modify-ui.test.js`: browser regressions for the detailed Modify editor, mixed selections, folder recursion, navigation, save/undo and stale scans. Runs when Playwright (or `playwright-core`) and Chromium are available; otherwise skips with a reason. `MYFILE_TEST_CHROMIUM` can select a browser executable.

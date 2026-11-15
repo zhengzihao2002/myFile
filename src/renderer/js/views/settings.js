@@ -47,12 +47,15 @@
       const box = h("div.settings");
       const el = h("div", box);
 
-      async function save(patch) {
-        try {
-          MF.settings = await api.run("settings.set", patch);
-        } catch (err) {
-          MF.fail(err);
-        }
+      let saveChain = Promise.resolve();
+      function save(patch) {
+        saveChain = saveChain.then(async () => {
+          try {
+            MF.settings = await api.run("settings.set", patch);
+            if (MF.applyPresentation) MF.applyPresentation();
+          } catch (err) { MF.fail(err); }
+        });
+        return saveChain;
       }
 
       async function render() {
@@ -83,6 +86,16 @@
             { value: 2000, label: "Within 2 seconds", title: "For FAT32 drives, which store times in 2-second steps" },
           ],
           onChange: (v) => save({ toleranceMs: v }),
+        });
+        const language = MF.Segmented({
+          value: s.language || "en",
+          options: [{ value: "en", label: "English" }, { value: "zh-CN", label: "简体中文" }],
+          onChange: (value) => save({ language: value }),
+        });
+        const timeFormat = MF.Segmented({
+          value: s.timeFormat || "24",
+          options: [{ value: "24", label: "24-hour" }, { value: "12", label: "12-hour (AM/PM)" }],
+          onChange: (value) => save({ timeFormat: value }),
         });
         const parallel = MF.Segmented({
           value: String(s.parallelFiles || "auto"),
@@ -135,6 +148,8 @@
             "div.card.card-pad.group-card",
             h("h3", "Appearance"),
             h("div.option", h("span.text", h("div.title", "Theme"), h("div.desc", "Automatic follows macOS.")), theme.el),
+            h("div.option", h("span.text", h("div.title", "App language"), h("div.desc", "Choose the language used by the app.")), language.el),
+            h("div.option", h("span.text", h("div.title", "Time format"), h("div.desc", "Applies to displayed times throughout the app and exported reports. Stored dates and UTC offsets stay unchanged.")), timeFormat.el),
           ),
           h(
             "div.card.card-pad.group-card",

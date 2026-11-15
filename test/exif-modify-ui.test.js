@@ -35,6 +35,11 @@ async function dropPaths(page, paths) {
   }, paths);
 }
 
+async function manageInputs(page) {
+  const button = page.getByRole("button", { name: /Manage inputs|Hide inputs/ });
+  if (await button.getAttribute("aria-expanded") !== "true") await button.click();
+}
+
 async function currentFile(page, name) {
   await page.locator(".stage .fname").filter({ hasText: name }).waitFor({ state: "visible" });
   await page.getByText("What should win?", { exact: true }).waitFor({ state: "visible" });
@@ -156,8 +161,10 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     const page = await pageFor(t);
     await dropPaths(page, [a]);
     await currentFile(page, "a-partial.jpg");
+    await page.locator(".bt-zone-card > summary").click();
     await page.getByRole("button", { name: "Eastern", exact: true }).click();
-    const one = page.locator(".bt-choice.one select");
+    await page.getByRole("button", { name: /Change just one/ }).click();
+    const one = page.locator(".bt-one-fields select");
     await one.nth(0).selectOption("modified");
     await one.nth(1).selectOption("modified");
     const saved = page.waitForResponse(res => res.url().endsWith("/task") && res.request().postDataJSON().name === "exif.batchApply");
@@ -348,6 +355,7 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await firstApply;
     assert.equal(fs.statSync(old).mtimeMs, Date.parse("2023-05-01T04:00:00Z"));
+    await manageInputs(page);
     await page.locator(".drop .item").getByTitle("Remove", { exact: true }).click();
     await dropPaths(page, [fresh]);
     await page.getByText("Finishing the current save…", { exact: true }).waitFor();
@@ -388,6 +396,7 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     await dropPaths(page, [old]);
     await firstScan;
     if (action === "removing a selection") {
+      await manageInputs(page);
       await page.locator(".drop .item").getByTitle("Remove", { exact: true }).click();
     } else {
       await page.getByRole("button", { name: "Clear", exact: true }).click();
@@ -525,12 +534,73 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     assert.match(await page.locator(".bt-choice.on").textContent(), /Everything follows Modified/);
     assert.deepEqual(reads, [loose]);
     reads.length = 0;
+    await manageInputs(page);
     await page.locator(".drop .item").filter({ hasText: "z-loose.jpg" }).getByTitle("Remove", { exact: true }).click();
     await currentFile(page, "a.jpg");
     assert.match(await page.locator(".stage-bar").textContent(), /1 of 2/);
     assert.match(await page.locator(".bt-choice.on").textContent(), /Everything follows Modified/);
     assert.deepEqual(reads, []);
     assert.equal(fs.statSync(a).mtimeMs, Date.parse("2024-06-01T01:02:03Z"));
+  });
+
+  await t.test("the workspace keeps Save visible as inputs grow, panels scroll and the window resizes", async (t) => {
+    const root = tmpDir("ui-window-layout");
+    const first = await photo(root, "a-00.jpg");
+    const original = fs.statSync(first).mtimeMs;
+    const others = Array.from({ length: 24 }, (_, i) => {
+      const file = path.join(root, `a-${String(i + 1).padStart(2, "0")}.jpg`);
+      fs.copyFileSync(first, file);
+      return file;
+    });
+    const page = await pageFor(t);
+    await page.setViewportSize({ width: 1000, height: 660 });
+    await dropPaths(page, [first]);
+    await currentFile(page, "a-00.jpg");
+
+    async function pinnedSave(label) {
+      const button = page.getByRole("button", { name: label, exact: true });
+      const layout = await button.evaluate(el => {
+        const r = el.getBoundingClientRect(), main = document.querySelector(".content");
+        return { fits: r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth, height: r.height, reachable: el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)), scroll: main.scrollHeight - main.clientHeight };
+      });
+      assert.ok(layout.fits && layout.reachable, "Save is fully visible and receives clicks without scrolling");
+      assert.ok(layout.height >= 44, "Save keeps a large click target");
+      assert.ok(layout.scroll <= 1, "the workspace has no outer scrollbar");
+    }
+
+    await pinnedSave("Save");
+    const barHeight = (await page.locator(".drop-selection").boundingBox()).height;
+    await dropPaths(page, others);
+    await currentFile(page, "a-00.jpg");
+    await page.locator(".stage-bar").filter({ hasText: "1 of 25" }).waitFor();
+    assert.ok(Math.abs((await page.locator(".drop-selection").boundingBox()).height - barHeight) < 1);
+    for (const [width, height] of [[1000, 660], [1280, 800], [1600, 900]]) {
+      await page.setViewportSize({ width, height });
+      await pinnedSave("Save & next");
+      await page.locator(".bt-side .scroll").evaluate(el => { el.scrollTop = el.scrollHeight; });
+      await pinnedSave("Save & next");
+    }
+    await page.setViewportSize({ width: 1000, height: 660 });
+    const workspaceHeight = (await page.locator(".bt-embed").boundingBox()).height;
+    await manageInputs(page);
+    assert.ok(Math.abs((await page.locator(".bt-embed").boundingBox()).height - workspaceHeight) < 1, "managing inputs does not resize the editor");
+    assert.ok(await page.locator(".drop .items").evaluate(el => el.scrollHeight > el.clientHeight));
+    await page.locator(".drop .item").filter({ hasText: "a-24.jpg" }).getByTitle("Remove", { exact: true }).click();
+    await page.locator(".stage-bar").filter({ hasText: "1 of 24" }).waitFor();
+    await page.getByRole("button", { name: "Hide inputs", exact: true }).press("Escape");
+    await pinnedSave("Save & next");
+    await page.getByRole("button", { name: "Save & next", exact: true }).click();
+    await currentFile(page, "a-01.jpg");
+    assert.equal(fs.statSync(first).mtimeMs, Date.parse("2023-05-01T04:00:00Z"));
+    assert.notEqual(fs.statSync(first).mtimeMs, original);
+    await pinnedSave("Save & next");
+    await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await page.locator(".toast").waitFor({ state: "hidden" });
+    await page.getByRole("radio", { name: "Copy from a reference", exact: true }).click();
+    assert.equal(await page.locator(".exif-modify.self-mode").count(), 0);
+    await page.getByRole("radio", { name: "Use each file's own date", exact: true }).click();
+    await currentFile(page, "a-01.jpg");
+    await pinnedSave("Save & next");
   });
 
   assert.deepEqual(errors, [], "renderer has no unhandled errors");

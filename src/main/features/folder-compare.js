@@ -345,6 +345,7 @@ async function compareExport(ctx, { id, output }) {
   const html = renderTemplate("compare-report.html", {
     TITLE: `${result.a.name} vs ${result.b.name} — myFile comparison`,
     DATA: result,
+    PREFERENCES: ctx.settings.get(),
   });
   await fs.promises.writeFile(output, html, "utf8");
   const bytes = Buffer.byteLength(html);

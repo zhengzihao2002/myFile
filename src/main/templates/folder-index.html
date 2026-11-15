@@ -491,7 +491,8 @@
   document.getElementById("collapse").addEventListener("click", function () { q.value = ""; render(); });
   document.getElementById("expand").addEventListener("click", function () {
     var total = countBelow(ROOT);
-    if (total > 20000 && !confirm("This will draw " + total.toLocaleString() + " rows and may be slow. Continue?")) return;
+    var warning = "This will draw " + total.toLocaleString() + " rows and may be slow. Continue?";
+    if (total > 20000 && !confirm(window.MyFilePresentation ? MyFilePresentation.translate(warning, document.documentElement.lang) : warning)) return;
     var term = q.value.trim().toLowerCase();
     var root = term ? filterTree(ROOT, term, { n: 0, matches: 0, capped: false }) : ROOT;
     if (!root) return;
