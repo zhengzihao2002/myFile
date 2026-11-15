@@ -160,7 +160,7 @@ test("date review filters, warnings, saved sessions and validation remain usable
     await dropPaths(page, [root]);
     await currentFile(page, "visible.jpg");
     await page.locator(".bt-warnings").waitFor({ state: "visible" });
-    await page.locator(".bt-warnings summary").click();
+    assert.equal(await page.locator(".bt-warnings").getAttribute("open"), "");
     assert.match(await page.locator(".bt-warnings").textContent(), /unreadable/);
     assert.match(await page.locator(".bt-warnings").textContent(), /permission|EACCES/i);
   });
@@ -244,7 +244,6 @@ test("date review filters, warnings, saved sessions and validation remain usable
     const page = await pageFor(t);
     await dropPaths(page, [root]);
     await currentFile(page, "a.jpg");
-    await page.locator(".bt-zone-card > summary").click();
     await page.locator(".bt-zonepick select").selectOption("other");
     const offset = page.locator(".bt-zonepick input");
     await offset.fill("+08:99");
@@ -268,7 +267,7 @@ test("date review filters, warnings, saved sessions and validation remain usable
     await page.getByRole("button", { name: /Everything follows Modified/ }).click();
     await page.locator(".bt-choice.on").filter({ hasText: "Everything follows Modified" }).waitFor();
     assert.match(await page.locator(".bt-bulk").textContent(), /overrides.*unsaved date and time-zone choices/i);
-    await page.locator(".bt-bulk > summary").click();
+    assert.equal(await page.locator(".bt-bulk").getAttribute("open"), "");
     await page.getByRole("button", { name: /Apply to all .*remaining/ }).click();
     const dialog = page.getByRole("dialog");
     await dialog.waitFor();

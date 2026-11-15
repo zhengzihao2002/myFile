@@ -21,7 +21,9 @@
 
 The **Clear** button removes loaded files and results while keeping the current tab and options. Date-review folder scans show per-file completion, files per second and only the files currently being read, with concurrency controlled by Settings. Unreadable files or folders are listed with their paths and reasons.
 
-The date editor fits the window: Save / Save & next stays visible, while the date cards and file queue scroll independently. A compact input bar shows **Manage inputs** for removing/revealing selections and **Add more** for adding them. Batch actions and detailed change summaries expand when needed.
+The date editor fits the window: Save / Save & next stays visible, while the date cards and file queue scroll independently. A compact input bar shows **Manage inputs** for removing/revealing selections and **Add more** for adding them. Time-zone cards, change summaries and batch actions start expanded; you can collapse them individually.
+
+Drop areas are larger across EXIF, Folder and Sync, including after inputs are loaded. Long input lists scroll within their cards. The whole per-file date-review workspace accepts additional files and folders, with a highlight while dragging.
 
 Adding or removing files in the date editor reuses the existing folder scan, metadata, per-file choices and review history. Only newly included files are read. Use **Scan again** to refresh folder contents and metadata from disk.
 
@@ -120,7 +122,7 @@ The folder takes about 500 MB after installing (Electron is most of it). The app
 
 ## Good to know
 
-- **Language and clock.** Settings › Appearance offers English or 简体中文 and 24-hour or 12-hour (AM/PM) times. Both preferences apply immediately, persist after reopening, and are included in exported HTML reports. Display choices leave metadata, timestamps and UTC offsets unchanged.
+- **Language and clock.** Settings › Appearance offers English or 简体中文 and 24-hour or 12-hour times (AM/PM in English, 上午/下午 in Chinese). Both preferences apply immediately, persist after reopening, and are included in exported HTML reports. Display choices leave metadata, timestamps and UTC offsets unchanged.
 - **Time zones.** Show and Modify display dates in the file's stored zone, or a zone you explicitly choose. The current Mac's time zone never changes the displayed file dates. QuickTime integer timestamps store a UTC moment, not an original local offset: they display in UTC throughout the app and metadata list. Apple's `Keys:CreationDate` and photo OffsetTime tags preserve genuine stored offsets. Dates show numeric UTC offsets without inferred city names or seasonal labels. Unzoned photo dates are never interpreted using the Mac's zone; choose/save their zone before setting file dates or converting them to video timestamps. File-system-only screens, History and HTML reports use explicit UTC dates. Inspecting dates does not rewrite the file.
 - **Creation dates** (Finder's "Created") are set through macOS's own Foundation framework, so Apple's developer tools (`SetFile`) aren't needed.
 - **Precision.** By default dates within one second of each other count as the same, which is what Finder shows. Settings › Comparing switches to exact matching, or two seconds for FAT32 drives. New dates are always written exactly.

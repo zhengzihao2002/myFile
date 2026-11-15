@@ -129,7 +129,7 @@
           h(
             "div",
             h("h3", r.same ? (c.dateDiffs ? "Same contents, some dates differ" : "These folders are identical") : "These folders differ"),
-            h("p", `${fmt.plural(c.identical, "identical file")} · ${fmt.num(c.changed)} changed · ${fmt.num(c.onlyA)} only in A · ${fmt.num(c.onlyB)} only in B · ${fmt.duration(r.elapsedMs)}`),
+            h("p", h("span", fmt.plural(c.identical, "identical file")), " · ", h("span", `${fmt.num(c.changed)} changed`), " · ", h("span", `${fmt.num(c.onlyA)} only in A`), " · ", h("span", `${fmt.num(c.onlyB)} only in B`), " · ", h("span", fmt.duration(r.elapsedMs))),
           ),
           h("div.actions", MF.Button("Export HTML report", { iconName: "save", onClick: exportReport }), MF.Button("Compare again", { iconName: "refresh", onClick: run })),
         );

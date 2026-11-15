@@ -10,16 +10,17 @@
     timeFormat: s && s.timeFormat === "12" ? "12" : "24",
   });
   const patterns = Object.entries(catalog)
-    .filter(([key]) => /\{\d+\}/.test(key))
+    .filter(([key]) => /\{\d+(?::number)?\}/.test(key))
     .map(([key, value]) => {
-      const parts = key.split(/(\{\d+\})/),
+      const parts = key.split(/(\{\d+(?::number)?\})/),
         indices = [];
       const source = parts
-        .map((part) =>
-          /^\{\d+\}$/.test(part)
-            ? (indices.push(part.slice(1, -1)), "([\\s\\S]*?)")
-            : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-        )
+        .map((part) => {
+          const parameter = /^\{(\d+)(:number)?\}$/.exec(part);
+          if (!parameter) return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          indices.push(parameter[1]);
+          return parameter[2] ? "([\\d,]+(?:\\.\\d+)?)" : "([\\s\\S]*?)";
+        })
         .join("");
       return { regex: new RegExp("^" + source + "$"), value, indices };
     })
@@ -51,17 +52,18 @@
           result +
           text.slice(text.indexOf(trimmed) + trimmed.length);
   }
-  function clock(text, format) {
+  function clock(text, format, language = "en") {
     if (typeof text !== "string" || format !== "12") return text;
     // Only displayed timestamps or standalone clock values. UTC offsets and
     // durations (e.g. 1:20) must never be interpreted as a time of day.
     return text.replace(
-      /(^|\b\d{4}[-:]\d{2}[-:]\d{2}[ T])(\d{2}):(\d{2})(?::(\d{2})(\.\d+)?)?(?:\s+([AP]M))?/g,
-      (all, prefix, hour, minute, second, fraction, ampm, index, original) => {
-        if (ampm) return all;
-        const h = Number(hour);
+      /(^|\b\d{4}[-:]\d{2}[-:]\d{2}[ T])(?:(上午|下午)\s+)?(\d{2}):(\d{2})(?::(\d{2})(\.\d+)?)?(?:\s+([AP]M))?/g,
+      (all, prefix, chinesePeriod, hour, minute, second, fraction, ampm, index, original) => {
+        const period = chinesePeriod || ampm;
+        const h = period ? Number(hour) % 12 + (period === "PM" || period === "下午" ? 12 : 0) : Number(hour);
         if (
           h > 23 ||
+          (period && (Number(hour) < 1 || Number(hour) > 12)) ||
           Number(minute) > 59 ||
           (second !== undefined && Number(second) > 59)
         )
@@ -73,13 +75,16 @@
           )
         )
           return all;
-        return `${prefix}${String(h % 12 || 12).padStart(2, "0")}:${minute}${second === undefined ? "" : ":" + second + (fraction || "")} ${h < 12 ? "AM" : "PM"}`;
+        const time = `${String(h % 12 || 12).padStart(2, "0")}:${minute}${second === undefined ? "" : ":" + second + (fraction || "")}`;
+        return language === "zh-CN"
+          ? `${prefix}${h < 12 ? "上午" : "下午"} ${time}`
+          : `${prefix}${time} ${h < 12 ? "AM" : "PM"}`;
       },
     );
   }
   function present(text, settings, raw = false) {
     const s = normalize(settings);
-    return clock(raw ? text : translate(text, s.language), s.timeFormat);
+    return clock(raw ? text : translate(text, s.language), s.timeFormat, s.language);
   }
   function observe(doc, getSettings) {
     const records = new WeakMap(),

@@ -62,7 +62,7 @@
       const listHost = h("div.bt-listhost");
       const zoneLine = h("div.bt-zoneline");
       const bulkHost = h("div.bt-bulk-body");
-      const bulkPanel = h("details.bt-bulk", h("summary", icon("chevron"), "Batch actions"), bulkHost);
+      const bulkPanel = h("details.bt-bulk", { open: true }, h("summary", icon("chevron"), "Batch actions"), bulkHost);
       const footHost = h("div.bt-foot");
       const searchInput = h("input.select", { type: "search", placeholder: "Search names or paths…", attrs: { "aria-label": "Search review files" }, on: { input: () => { search = searchInput.value; applyFilter(); } } });
       const filterInput = h("select.select", { attrs: { "aria-label": "Filter review files" }, on: { change: () => { filter = filterInput.value; applyFilter(); } } }, [["all", "All files"], ["photos", "Photos"], ["videos", "Videos"], ["unknown", "Unknown time zone"], ["no-date", "Missing EXIF date"], ["matching", "Matching dates"], ["failed", "Failed saves"]].map(([value, label]) => h("option", { value }, label)));
@@ -83,7 +83,7 @@
       const sideFoot = h("div.bt-sidefoot");
       const side = h("div.panel-side.bt-side", sideScroll, sideFoot);
       const review = h("div.bt-review.hidden", listCol, stage, side);
-      const warnings = h("details.bt-warnings.hidden");
+      const warnings = h("details.bt-warnings.hidden", { open: true });
       const root = h("div.bt-root.embedded.single", warnings, review);
       const loading = h("div.bt-loading.hidden");
       root.appendChild(loading);
@@ -238,10 +238,11 @@
         if (pairs === 1) bits.push(row.pairs.exifModified ? "EXIF ≠ Modified" : row.pairs.exifCreated ? "EXIF ≠ Created" : "Created ≠ Modified");
         else if (pairs > 1) bits.push("dates differ");
         if (!row.hasExif) bits.push("no EXIF date");
+        const difference = [h("span", `${fmt.gap(row.spreadMs)} apart`), ...bits.flatMap(bit => [" · ", h("span", bit)])];
         return h(
           `div.bt-item${current && current.path === row.path ? ".on" : ""}`,
           icon(row.movie ? "video" : "photo"),
-          h("div.bt-txt", h("div.bt-name", row.name), h("div.bt-sub", st ? (st === "saved" ? "Saved" : st === "partial" ? "Saved, still differs" : st === "failed" ? `Save failed: ${failures.get(row.path) || "Try again"}` : "Skipped") : row.needsZone ? (row.suggestZone ? "Time zone: choose it (GPS suggests one)" : "Time zone unknown: choose it") : `${fmt.gap(row.spreadMs)} apart${bits.length ? ` · ${bits.join(" · ")}` : ""}`), dirOf(row.rel) ? h("div.bt-dir", dirOf(row.rel)) : null),
+          h("div.bt-txt", h("div.bt-name", row.name), h("div.bt-sub", st ? (st === "saved" ? "Saved" : st === "partial" ? "Saved, still differs" : st === "failed" ? `Save failed: ${failures.get(row.path) || "Try again"}` : "Skipped") : row.needsZone ? (row.suggestZone ? "Time zone: choose it (GPS suggests one)" : "Time zone unknown: choose it") : difference), dirOf(row.rel) ? h("div.bt-dir", dirOf(row.rel)) : null),
         );
       }
 
@@ -491,9 +492,9 @@
       }
       const lineEls = (lines) => lines.map((l) => h("div.bt-chg", h("span.bt-chg-l", l.label), h("span.bt-chg-old", l.from), icon("arrow"), h("span.bt-chg-new", l.to)));
 
-      function disclosure(id, heading, body, defaultOpen = false) {
+      function disclosure(id, heading, body) {
         const card = h(`details.kv.bt-disclosure.bt-${id}-card`, {
-          open: expandedCards.has(id) ? expandedCards.get(id) : defaultOpen,
+          open: expandedCards.has(id) ? expandedCards.get(id) : true,
           on: { toggle: () => { if (card.isConnected) expandedCards.set(id, card.open); } },
         }, heading, body);
         return card;
@@ -531,7 +532,6 @@
             picker.el,
             h("div", { style: { marginTop: "8px", borderTop: "1px solid var(--line)" } }, MF.Option({ title: "Save offset in file", checked: o.writeTz || d.writeTz, onChange: (v) => setDecision({ writeTz: v }) }).el),
           ),
-          o.needsZone,
         );
       }
 
@@ -656,7 +656,12 @@
         const word = { exif: "the EXIF date", modified: "the Modified date", created: "the Created date" }[policy];
         const ok = await MF.confirm({
           title: `Fix ${fmt.plural(targets.length, "file")}?`,
-          message: `This common policy overrides unsaved per-file date and time-zone choices for the visible remaining files. For each file, the other dates are set to ${word}${policy === "exif" ? "" : " (the EXIF date is written into the file)"}, read in each file's own time zone. ${skippedNoExif ? `${fmt.plural(skippedNoExif, "file")} without an EXIF date stay in the list. ` : ""}${waitingZone ? `${waitingZone === 1 ? "1 file whose time zone is unknown stays" : `${fmt.num(waitingZone)} files whose time zone is unknown stay`} in the list for you to do one by one. ` : ""}Folder dates are kept, and everything can be undone from History.`,
+          message: h("div",
+            h("p", "This common policy overrides unsaved per-file date and time-zone choices for the visible remaining files."),
+            h("p", "For each file, the other dates are set to ", h("b", word), policy === "exif" ? null : h("span", " (the EXIF date is written into the file)"), ", read in each file's own time zone."),
+            skippedNoExif ? h("p", `${fmt.plural(skippedNoExif, "file")} without an EXIF date ${skippedNoExif === 1 ? "stays" : "stay"} in the list.`) : null,
+            waitingZone ? h("p", `${fmt.num(waitingZone)} ${waitingZone === 1 ? "file whose time zone is unknown stays" : "files whose time zone is unknown stay"} in the list for you to do one by one.`) : null,
+            h("p", "Folder dates are kept, and everything can be undone from History.")),
           confirm: "Fix them",
           iconName: "wand",
         });

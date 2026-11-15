@@ -350,7 +350,7 @@
 
       function opChips(t) {
         const s = t.stats;
-        const chip = (op, n, extra) => (n ? h("span.opchip", h("span.dot", { style: { background: OPS[op].color } }), h("b", fmt.num(n)), ` ${OPS[op].label.toLowerCase()}${extra ? ` · ${extra}` : ""}`) : null);
+        const chip = (op, n, extra) => (n ? h("span.opchip", h("span.dot", { style: { background: OPS[op].color } }), h("b", fmt.num(n)), " ", h("span", OPS[op].label.toLowerCase()), extra ? ` · ${extra}` : null) : null);
         const any = s.copy + s.replace + s.mkdir + s.link + s.touch + s.remove;
         return h(
           "div.opchips",

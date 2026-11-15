@@ -82,32 +82,30 @@
       if (e.key === "Escape" && expanded) { expanded = false; renderSelection(); manage.focus(); }
     });
 
-    let depth = 0;
-    root.addEventListener("dragenter", (e) => {
-      e.preventDefault();
-      depth++;
-      root.classList.add("over");
-    });
-    root.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
-    });
-    root.addEventListener("dragleave", () => {
-      depth = Math.max(0, depth - 1);
-      if (!depth) root.classList.remove("over");
-    });
-    root.addEventListener("drop", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      depth = 0;
-      root.classList.remove("over");
-      const paths = [...(e.dataTransfer.files || [])].map((f) => api.pathForFile(f)).filter(Boolean);
-      if (!paths.length) {
-        const text = e.dataTransfer.getData("text/plain");
-        if (text) paths.push(...text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean));
-      }
-      add(paths);
-    });
+    const dropTargets = new Map();
+    function bindDropTarget(surface) {
+      if (dropTargets.has(surface)) return;
+      const state = { depth: 0 };
+      dropTargets.set(surface, state);
+      surface.addEventListener("dragenter", (e) => { e.preventDefault(); state.depth++; surface.classList.add("over"); });
+      surface.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+      surface.addEventListener("dragleave", () => {
+        state.depth = Math.max(0, state.depth - 1);
+        if (!state.depth) surface.classList.remove("over");
+      });
+      surface.addEventListener("drop", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        for (const [target, s] of dropTargets) { s.depth = 0; target.classList.remove("over"); }
+        const paths = [...(e.dataTransfer.files || [])].map((f) => api.pathForFile(f)).filter(Boolean);
+        if (!paths.length) {
+          const text = e.dataTransfer.getData("text/plain");
+          if (text) paths.push(...text.split(/\r?\n/).map((s) => s.trim()).filter(Boolean));
+        }
+        add(paths);
+      }, { capture: surface !== root });
+    }
+    bindDropTarget(root);
     root.addEventListener("paste", (e) => {
       const text = e.clipboardData && e.clipboardData.getData("text/plain");
       if (!text) return;
@@ -203,6 +201,7 @@
     render();
     return {
       el: root,
+      bindDropTarget,
       get paths() {
         return infos.map((i) => i.path);
       },
@@ -284,7 +283,7 @@
     const on = rows.filter(([k]) => c[k] && !(c.contents && ["exifDates", "gps", "otherMeta"].includes(k))).map(([, label]) => label);
     return [
       h("b", "Identical only if these all match: "),
-      on.length ? on.join(", ") : "nothing (every pair of files at the same path counts as identical)",
+      on.length ? on.flatMap((label, i) => [i ? ", " : "", h("span", label)]) : "nothing (every pair of files at the same path counts as identical)",
       ". ",
       c.contents ? "Every byte is read, which covers all metadata. " : "Files are not read in full. ",
       extra || null,

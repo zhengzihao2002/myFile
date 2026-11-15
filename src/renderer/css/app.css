@@ -384,11 +384,11 @@ select.select {
 }
 .drop-label .hint { margin-left: auto; font-weight: 500; font-size: 12px; color: var(--faint); }
 .drop-area {
-  margin: 12px; min-height: 132px;
+  margin: 12px; min-height: 200px;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
   border: 1.5px dashed var(--line-strong); border-radius: 12px;
   background: var(--surface-2);
-  text-align: center; padding: 18px;
+  text-align: center; padding: 24px;
   transition: all 0.18s var(--ease);
 }
 .drop-area:hover { border-color: var(--accent); background: var(--accent-softer); }
@@ -407,11 +407,13 @@ select.select {
 .drop.over { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-ring); }
 .drop.over .drop-area { border-color: var(--accent); background: var(--accent-soft); }
 .drop.over .glyph { transform: translateY(-3px) scale(1.06); }
-.drop.compact .drop-area { min-height: 0; flex-direction: row; padding: 10px 14px; justify-content: flex-start; gap: 12px; }
+.drop.compact .drop-area { min-height: 88px; flex-direction: row; padding: 16px 18px; justify-content: flex-start; gap: 12px; }
+.drop.compact:not(.compact-selection) { min-height: 120px; }
+.drop .items { max-height: 260px; overflow-y: auto; }
 .drop.compact .drop-area .glyph { width: 32px; height: 32px; margin: 0; border-radius: 9px; }
 .drop.compact .drop-area .glyph svg.i { width: 17px; height: 17px; }
 .drop.compact .drop-area .texts { text-align: left; }
-.drop-selection { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+.drop-selection { display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 10px 12px; }
 .drop-selection-label { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .drop-selection-label b { font-size: 12.5px; }
 .drop.compact-selection > .drop-label, .drop.compact-selection > .drop-area { display: none; }
@@ -876,7 +878,7 @@ select.select {
 .bt-name { font-weight: 600; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; }
 .bt-sub { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
 .bt-dir { font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
-.bt-bulk { flex: none; max-height: 40%; overflow-y: auto; border-top: 1px solid var(--line); background: var(--surface-2); }
+.bt-bulk { flex: 0 1 auto; max-height: 40%; overflow-y: auto; border-top: 1px solid var(--line); background: var(--surface-2); }
 .bt-bulk > summary { display: flex; align-items: center; gap: 7px; padding: 10px 12px; cursor: pointer; font-size: 12px; font-weight: 650; list-style: none; }
 .bt-bulk > summary::-webkit-details-marker { display: none; }
 .bt-bulk > summary svg { width: 14px; height: 14px; }
@@ -938,12 +940,17 @@ body:has(.exif-modify.self-mode) .toasts { bottom: 110px; max-height: calc(100vh
 .exif-modify.self-mode { height: 100%; min-height: 0; gap: 10px; }
 .self-mode > .modify-modes { flex: none; }
 .self-mode > .modify-body, .self-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.self-editor { height: 100%; gap: 10px; }
+.self-editor { position: relative; height: 100%; gap: 10px; }
 .self-editor > .drop { flex: none; }
+.self-editor > .drop:not(.compact) { flex: 1; display: flex; flex-direction: column; }
+.self-editor > .drop:not(.compact) .drop-area { flex: 1; min-height: 240px; }
+.self-drop-hint { display: none; position: absolute; inset: 0; z-index: 10; pointer-events: none; align-items: center; justify-content: center; gap: 10px; border: 2px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--surface) 90%, transparent); color: var(--accent); font-size: 16px; }
+.self-editor.over > .self-drop-hint { display: flex; }
 .bt-embed { flex: 1; min-height: 0; display: flex; container-type: inline-size; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .bt-loading { flex: 1; align-self: center; }
 .bt-loading .busy-card { max-width: calc(100% - 32px); margin: 16px auto; }
 .bt-root.embedded .bt-list { width: 250px; overflow: hidden; }
+.bt-root.embedded .bt-listhost { min-height: 58px; }
 .bt-root.embedded .bt-side { width: 420px; }
 .bt-root.embedded .bt-listhead { flex: none; max-height: 45%; overflow-y: auto; gap: 6px; }
 .bt-root.embedded .bt-tools { flex-direction: row; }

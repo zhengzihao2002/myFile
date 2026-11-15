@@ -49,6 +49,7 @@ test(
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     const root = tmpDir("presentation-files");
+    const target = tmpDir("presentation-target");
     const photo = makeJpeg(path.join(root, "Saved 2023-05-01 14:00.jpg"));
     await app.ctx.et.write(photo, [
       ["DateTimeOriginal", "2015:12:29 14:28:42"],
@@ -60,6 +61,7 @@ test(
     const hash = () =>
       crypto.createHash("sha256").update(fs.readFileSync(photo)).digest("hex");
     const originalHash = hash();
+    fs.copyFileSync(photo, path.join(target, path.basename(photo)));
     const url = `http://127.0.0.1:${app.server.address().port}`;
     await page.goto(url);
     await page.locator(".header h1").filter({ hasText: /\S/ }).waitFor();
@@ -78,7 +80,7 @@ test(
     await page.getByRole("radio", { name: "简体中文", exact: true }).click();
     await page.getByText("应用语言", { exact: true }).waitFor();
     await page
-      .getByRole("radio", { name: "12 小时制（AM/PM）", exact: true })
+      .getByRole("radio", { name: "12 小时制（上午／下午）", exact: true })
       .click();
     await page.waitForFunction(
       () => MF.settings.language === "zh-CN" && MF.settings.timeFormat === "12",
@@ -87,6 +89,10 @@ test(
     await page.setViewportSize({ width: 1000, height: 660 });
     await page.evaluate(() => MF.go("exif-modify", { mode: "self" }));
     await page.getByRole("button", { name: /全部按修改日期/ }).waitFor();
+    assert.equal(await page.locator(".bt-zone-card").getAttribute("open"), "", "time-zone cards start expanded");
+    assert.equal(await page.locator(".bt-changes-card").getAttribute("open"), "", "change summaries start expanded");
+    await page.getByRole("button", { name: "添加更多", exact: true }).waitFor();
+    assert.doesNotMatch(await page.locator(".self-editor").innerText(), /\b(?:AM|PM|Add more)\b/);
     assert.match(
       await page.locator(".bt-choice.on").textContent(),
       /全部按修改日期/,
@@ -98,7 +104,7 @@ test(
     );
     assert.match(
       await page.locator(".bt-field").first().locator(".bt-now").innerText(),
-      /2015-12-29 02:28:42 PM UTC-05:00/,
+      /2015-12-29 下午 02:28:42 UTC-05:00/,
     );
     assert.equal(hash(), originalHash);
     assert.equal(
@@ -111,7 +117,7 @@ test(
       .boundingBox();
     assert.ok(
       saveBounds.y + saveBounds.height <= 660,
-      "Chinese and AM/PM keep Save inside the small window",
+      "Chinese period labels keep Save inside the small window",
     );
     assert.ok(
       await page
@@ -128,6 +134,26 @@ test(
     ]) {
       await page.evaluate((view) => MF.go(view), view);
       await page.locator(".header h1").filter({ hasText: title }).waitFor();
+      const operation = {
+        "folder-compare": ["比较", "folder.compare", ".verdict", /总大小/],
+        "folder-modify": ["检查", "folder.modifyPlan", ".tcard", /项待修正/],
+        "filesync": ["分析", "sync.analyze", ".tcard", /项操作/],
+      }[view];
+      if (operation) {
+        for (const [i, folder] of [[0, root], [1, target]]) {
+          await page.locator(".view .drop").nth(i).evaluate((el, folder) => {
+            const dataTransfer = new DataTransfer(); dataTransfer.setData("text/plain", folder);
+            el.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+          }, folder);
+        }
+        const response = page.waitForResponse(r => r.url().endsWith("/task") && r.request().postDataJSON().name === operation[1]);
+        await page.locator(".view").getByRole("button", { name: operation[0], exact: true }).click();
+        await response;
+        await page.locator(operation[2]).first().waitFor();
+        const contents = await page.locator(".main").innerText();
+        assert.match(contents, operation[3]);
+        assert.doesNotMatch(contents, /\b(?:Change|Total size|Compare again|These folders differ|Needs|Used|fix dates|actions|items to fix)\b/);
+      }
     }
     await page.evaluate(
       (photo) => MF.go("exif-show", { paths: [photo] }),
@@ -138,7 +164,7 @@ test(
       .waitFor();
     assert.match(
       await page.locator(".big-date .when").innerText(),
-      /02:28:42 PM UTC-05:00/,
+      /下午 02:28:42 UTC-05:00/,
     );
     assert.equal(
       await page.locator(".fname").textContent(),
@@ -216,7 +242,7 @@ test(
     await page.getByText("应用语言", { exact: true }).waitFor();
     assert.equal(
       await page
-        .getByRole("radio", { name: "12 小时制（AM/PM）", exact: true })
+        .getByRole("radio", { name: "12 小时制（上午／下午）", exact: true })
         .getAttribute("aria-checked"),
       "true",
     );
@@ -262,7 +288,8 @@ test(
           () => document.documentElement.lang === "zh-CN",
         );
         const text = await reportPage.locator("body").innerText();
-        assert.match(text, /AM|PM/);
+        assert.match(text, /上午|下午/);
+        assert.doesNotMatch(text, /\b(?:AM|PM)\b/);
         assert.match(text, /创建|修改/);
         texts.push(text);
         const data = await reportPage
@@ -281,6 +308,10 @@ test(
     assert.deepEqual(snapshots[1], snapshots[0]);
     await page.getByRole("radio", { name: "English", exact: true }).click();
     await page.getByText("App language", { exact: true }).waitFor();
+    await page.evaluate(photo => MF.go("exif-show", { paths: [photo] }), photo);
+    await page.getByRole("button", { name: "Use for file dates", exact: true }).waitFor();
+    assert.equal(await page.locator(".big-date .when").innerText(), "2015-12-29 02:28:42 PM UTC-05:00");
+    await page.evaluate(() => MF.go("settings"));
     await page.getByRole("radio", { name: "24-hour", exact: true }).click();
     await page.waitForFunction(
       () => MF.settings.language === "en" && MF.settings.timeFormat === "24",

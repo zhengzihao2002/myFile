@@ -161,7 +161,6 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     const page = await pageFor(t);
     await dropPaths(page, [a]);
     await currentFile(page, "a-partial.jpg");
-    await page.locator(".bt-zone-card > summary").click();
     await page.getByRole("button", { name: "Eastern", exact: true }).click();
     await page.getByRole("button", { name: /Change just one/ }).click();
     const one = page.locator(".bt-one-fields select");
@@ -601,6 +600,86 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     await page.getByRole("radio", { name: "Use each file's own date", exact: true }).click();
     await currentFile(page, "a-01.jpg");
     await pinnedSave("Save & next");
+  });
+
+  await t.test("drop areas are large on every screen, including loaded selections", async (t) => {
+    const root = tmpDir("ui-drop-sizes"), file = await photo(root, "photo.jpg");
+    const page = await pageFor(t);
+    await page.setViewportSize({ width: 1000, height: 660 });
+    assert.ok((await page.locator(".self-editor .drop-area").boundingBox()).height >= 240);
+    for (const view of ["exif-show", "exif-modify", "folder-compare", "folder-modify", "folder-html", "filesync"]) {
+      await page.evaluate(view => MF.go(view, view === "exif-modify" ? { mode: "copy" } : {}), view);
+      const areas = page.locator(".view .drop-area:visible");
+      assert.ok(await areas.count());
+      for (const area of await areas.all()) {
+        const bounds = await area.boundingBox();
+        assert.ok(bounds.height >= 199.5 && bounds.width >= 179.5, `${view} has a generous empty drop target`);
+      }
+      if (view === "exif-show") continue;
+      await dropPaths(page, [view === "exif-modify" ? file : root]);
+      await page.locator(".view .drop.compact").first().waitFor();
+      assert.ok((await page.locator(".view .drop.compact").first().boundingBox()).height >= 119.5, `${view} keeps loaded selections easy to drop onto`);
+      if (view === "exif-modify" || view === "filesync") {
+        await page.locator(".view .drop").nth(1).evaluate((el, path) => {
+          const dataTransfer = new DataTransfer(); dataTransfer.setData("text/plain", path);
+          el.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+        }, view === "exif-modify" ? file : root);
+        await page.locator(".view .drop").nth(1).locator(".item").waitFor();
+        assert.ok((await page.locator(".view .drop").nth(1).locator(".drop-area").boundingBox()).height >= 87.5, "loaded multi-selection drop strips remain large");
+      }
+    }
+  });
+
+  await t.test("dropping onto the workspace adds files once and Chinese review labels stay translated", async (t) => {
+    const root = tmpDir("ui-full-drop");
+    const files = [];
+    for (let i = 0; i < 4; i++) files.push(await photo(root, `a-${i}.jpg`));
+    const page = await pageFor(t);
+    await page.setViewportSize({ width: 1000, height: 660 });
+    const scans = [];
+    page.on("request", req => { if (req.url().endsWith("/task") && req.postDataJSON().name === "exif.batchScan") scans.push(req.postDataJSON()); });
+    async function drag(selector, file, event) {
+      await page.locator(selector).evaluate((el, { file, event }) => {
+        const dataTransfer = new DataTransfer(); dataTransfer.setData("text/plain", file);
+        el.dispatchEvent(new DragEvent(event, { bubbles: true, cancelable: true, dataTransfer }));
+      }, { file, event });
+    }
+    await drag(".self-editor", files[0], "dragenter");
+    assert.equal(await page.locator(".self-editor.over .self-drop-hint").isVisible(), true);
+    await drag(".self-editor", files[0], "dragleave");
+    assert.equal(await page.locator(".self-drop-hint").isVisible(), false);
+    await drag(".self-editor", files[0], "drop");
+    await currentFile(page, "a-0.jpg");
+    await page.getByRole("button", { name: /Everything follows Modified/ }).click();
+    for (const [i, selector] of [[1, ".stage-view"], [2, ".bt-side"], [3, ".bt-list"]]) {
+      await drag(selector, files[i], "dragenter");
+      assert.equal(await page.locator(".self-drop-hint").isVisible(), true);
+      await drag(selector, files[i], "drop");
+      await page.locator(".stage-bar").filter({ hasText: `1 of ${i + 1}` }).waitFor();
+      assert.equal(await page.locator(".self-drop-hint").isVisible(), false);
+      assert.match(await page.locator(".bt-choice.on").textContent(), /Everything follows Modified/);
+    }
+    assert.equal(scans.length, 4, "nested drop surfaces never process a drop twice");
+    await page.evaluate(() => MF.go("settings"));
+    await page.getByRole("radio", { name: "简体中文", exact: true }).click();
+    await page.getByRole("radio", { name: "12 小时制（上午／下午）", exact: true }).click();
+    await page.waitForFunction(() => MF.settings.language === "zh-CN" && MF.settings.timeFormat === "12");
+    await page.evaluate(() => MF.go("exif-modify", { mode: "self" }));
+    await page.getByRole("button", { name: "保存并继续", exact: true }).waitFor();
+    assert.match(await page.locator(".bt-counts").textContent(), /4 个待处理/);
+    assert.match(await page.locator(".bt-sub").first().textContent(), /相差/);
+    assert.doesNotMatch(await page.locator(".self-editor").innerText(), /\b(?:AM|PM|Add more|to decide|apart|dates differ|years)\b/);
+    for (const card of [".bt-zone-card", ".bt-changes-card", ".bt-bulk"]) assert.equal(await page.locator(card).getAttribute("open"), "");
+    await page.locator(".bt-zone-card > summary").click();
+    await page.getByRole("button", { name: /全部按 EXIF 日期/ }).click();
+    assert.equal(await page.locator(".bt-zone-card").getAttribute("open"), null, "the user's collapse choice survives date-policy changes");
+    await page.locator(".stage-bar button").nth(1).click();
+    await page.locator(".stage .fname").filter({ hasText: "a-1.jpg" }).waitFor();
+    await page.getByRole("button", { name: /全部按 EXIF 日期/ }).waitFor();
+    assert.equal(await page.locator(".bt-zone-card").getAttribute("open"), "", "the next file starts expanded");
+    assert.ok(await page.locator(".content").evaluate(el => el.scrollHeight <= el.clientHeight + 1));
+    const save = await page.getByRole("button", { name: "保存并继续", exact: true }).boundingBox();
+    assert.ok(save.y + save.height <= 660);
   });
 
   assert.deepEqual(errors, [], "renderer has no unhandled errors");
