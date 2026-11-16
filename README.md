@@ -23,7 +23,7 @@ The **Clear** button removes loaded files and results while keeping the current 
 
 The date editor fits the window: Save / Save & next stays visible, while the date cards and file queue scroll independently. A compact input bar shows **Manage inputs** for removing/revealing selections and **Add more** for adding them. Time-zone cards, change summaries and batch actions start expanded; you can collapse them individually.
 
-Drop areas are larger across EXIF, Folder and Sync, including after inputs are loaded. Long input lists scroll within their cards. The whole per-file date-review workspace accepts additional files and folders, with a highlight while dragging.
+Drop areas are moderately larger across EXIF, Folder and Sync, including after inputs are loaded. Each drop card is limited to 600 pixels wide and keeps its normal height instead of filling the workspace. Long input lists scroll within their cards.
 
 Adding or removing files in the date editor reuses the existing folder scan, metadata, per-file choices and review history. Only newly included files are read. Use **Scan again** to refresh folder contents and metadata from disk.
 
@@ -151,7 +151,7 @@ bash scripts/dev.sh --test  # run the test suite
 
 **One file at a time:** EXIF › Modify › *Use each file's own date* uses one shared detailed editor for a single file, loose files and folders. A single loose file stays open after Save with its Undo button; a multi-file or folder session adds navigation, Save & next, Skip and Undo all. Folder review is included here; there is no separate Batch Modify screen.
 
-**Updating:** Settings › About › *Check for updates* (or the myFile menu › *Check for Updates…*) fetches the latest version from GitHub, shows what changed, and on your OK syncs `main`, closes, rebuilds itself with `install.sh` and reopens. If GitHub's history was rewritten, your previous commits are kept on a `myfile-before-update-…` backup branch before adopting the official version. Uncommitted source edits must be committed or stashed first. Settings and history stay in `.runtime/`. If a rebuild fails, a message points to `.runtime/update.log`.
+**Updating:** On launch, myFile checks GitHub in the background and prompts only when an update is available. Choose **Update and restart** or **Not now**; current versions and offline checks stay silent. You can also check manually in Settings › About › *Check for updates* or the myFile menu › *Check for Updates…*. On your OK, myFile syncs `main`, closes, rebuilds itself with `install.sh` and reopens. If GitHub's history was rewritten, your previous commits are kept on a `myfile-before-update-…` backup branch before adopting the official version. Uncommitted source edits must be committed or stashed first. Settings and history stay in `.runtime/`. If a rebuild fails, a message points to `.runtime/update.log`.
 
 **Recovering an older updater after “Diverging branches can't be fast-forwarded”:** quit myFile, open Terminal in its repository folder and run the following. This preserves your current commits on a backup branch, refuses uncommitted source edits, and rebuilds the app with the repaired updater. If any command fails, stop and resolve that error before continuing.
 

@@ -2,6 +2,9 @@
 (function (root) {
   "use strict";
   const messages = {
+    "Not now": "暂不更新",
+    "{0} update available": "有 {0} 项更新可用",
+    "{0} updates available": "有 {0} 项更新可用",
     "Change": "更换",
     "Total size": "总大小",
     "Plan": "操作计划",
@@ -45,7 +48,6 @@
     "{0:number}s": "{0} 秒",
     "{0:number}m {1:number}s": "{0} 分 {1} 秒",
     "{0:number}h {1:number}m": "{0} 小时 {1} 分",
-    "Drop to add files or folders": "松开以添加文件或文件夹",
     "Folders or HTML index": "文件夹或 HTML 索引",
     "Drop more here or click to choose": "拖入更多项目，或点击选择",
     "modified date": "修改日期",

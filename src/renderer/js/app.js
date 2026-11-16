@@ -178,5 +178,6 @@
       // storage unavailable
     }
     MF.go(start, startParams);
+    if (window.myfile) MF.checkForUpdates({ automatic: true });
   });
 })();

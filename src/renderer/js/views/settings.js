@@ -3,17 +3,26 @@
   "use strict";
 
   // Check GitHub for a newer myFile, safely sync main and rebuild the app.
-  MF.checkForUpdates = async function checkForUpdates() {
+  let updateCheck = null;
+  let automaticCheck = false;
+  MF.checkForUpdates = function checkForUpdates(options = {}) {
+    if (!updateCheck) {
+      automaticCheck = Boolean(options.automatic);
+      updateCheck = check().finally(() => { updateCheck = null; });
+    } else if (!options.automatic) automaticCheck = false;
+    return updateCheck;
+  };
+  async function check() {
     const { h, fmt, api } = MF;
     let res;
     try {
-      res = await MF.busy("Checking GitHub for updates…", "update.check", {});
+      res = automaticCheck ? await api.run("update.check", {}) : await MF.busy("Checking GitHub for updates…", "update.check", {});
     } catch (err) {
-      if (!err.cancelled) MF.fail(err);
+      if (!automaticCheck && !err.cancelled) MF.fail(err);
       return;
     }
     if (!res.behind) {
-      MF.toast("myFile is up to date", { kind: "success", detail: res.current });
+      if (!automaticCheck) MF.toast("myFile is up to date", { kind: "success", detail: res.current });
       return;
     }
     if (!res.canRestart) {
@@ -27,6 +36,7 @@
       title: `${fmt.plural(res.behind, "update")} available`,
       message: h("div", h("div", "myFile will download the update, close, rebuild itself (about a minute, longer if a new Electron is needed) and open again. Nothing you have set up is lost."), list, warn, backupNote),
       confirm: "Update and restart",
+      cancel: "Not now",
       iconName: "refresh",
     });
     if (!ok) return;
@@ -36,7 +46,7 @@
     } catch (err) {
       if (!err.cancelled) MF.fail(err);
     }
-  };
+  }
 
   const { h, fmt, api, replace } = MF;
 

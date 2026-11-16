@@ -370,6 +370,7 @@ select.select {
 /* ------------------------------------------------------------------ */
 
 .drop {
+  width: 100%; max-width: 600px;
   position: relative;
   border-radius: var(--r-lg);
   background: var(--surface);
@@ -413,7 +414,7 @@ select.select {
 .drop.compact .drop-area .glyph { width: 32px; height: 32px; margin: 0; border-radius: 9px; }
 .drop.compact .drop-area .glyph svg.i { width: 17px; height: 17px; }
 .drop.compact .drop-area .texts { text-align: left; }
-.drop-selection { display: flex; align-items: center; gap: 8px; min-height: 56px; padding: 10px 12px; }
+.drop-selection { display: flex; align-items: center; gap: 8px; min-height: 88px; padding: 12px; }
 .drop-selection-label { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .drop-selection-label b { font-size: 12.5px; }
 .drop.compact-selection > .drop-label, .drop.compact-selection > .drop-area { display: none; }
@@ -940,12 +941,8 @@ body:has(.exif-modify.self-mode) .toasts { bottom: 110px; max-height: calc(100vh
 .exif-modify.self-mode { height: 100%; min-height: 0; gap: 10px; }
 .self-mode > .modify-modes { flex: none; }
 .self-mode > .modify-body, .self-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.self-editor { position: relative; height: 100%; gap: 10px; }
+.self-editor { height: 100%; gap: 10px; }
 .self-editor > .drop { flex: none; }
-.self-editor > .drop:not(.compact) { flex: 1; display: flex; flex-direction: column; }
-.self-editor > .drop:not(.compact) .drop-area { flex: 1; min-height: 240px; }
-.self-drop-hint { display: none; position: absolute; inset: 0; z-index: 10; pointer-events: none; align-items: center; justify-content: center; gap: 10px; border: 2px dashed var(--accent); border-radius: 14px; background: color-mix(in srgb, var(--surface) 90%, transparent); color: var(--accent); font-size: 16px; }
-.self-editor.over > .self-drop-hint { display: flex; }
 .bt-embed { flex: 1; min-height: 0; display: flex; container-type: inline-size; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .bt-loading { flex: 1; align-self: center; }
 .bt-loading .busy-card { max-width: calc(100% - 32px); margin: 16px auto; }

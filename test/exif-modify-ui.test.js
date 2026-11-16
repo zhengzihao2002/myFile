@@ -606,14 +606,16 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     const root = tmpDir("ui-drop-sizes"), file = await photo(root, "photo.jpg");
     const page = await pageFor(t);
     await page.setViewportSize({ width: 1000, height: 660 });
-    assert.ok((await page.locator(".self-editor .drop-area").boundingBox()).height >= 240);
+    const initialDrop = await page.locator(".self-editor .drop-area").boundingBox();
+    assert.ok(initialDrop.height >= 199.5 && initialDrop.height <= 220);
+    assert.ok((await page.locator(".self-editor .drop").boundingBox()).width <= 600.5);
     for (const view of ["exif-show", "exif-modify", "folder-compare", "folder-modify", "folder-html", "filesync"]) {
       await page.evaluate(view => MF.go(view, view === "exif-modify" ? { mode: "copy" } : {}), view);
       const areas = page.locator(".view .drop-area:visible");
       assert.ok(await areas.count());
       for (const area of await areas.all()) {
         const bounds = await area.boundingBox();
-        assert.ok(bounds.height >= 199.5 && bounds.width >= 179.5, `${view} has a generous empty drop target`);
+        assert.ok(bounds.height >= 199.5 && bounds.height <= 220 && bounds.width >= 179.5 && bounds.width <= 600.5, `${view} has a moderately enlarged, bounded drop target`);
       }
       if (view === "exif-show") continue;
       await dropPaths(page, [view === "exif-modify" ? file : root]);
@@ -630,7 +632,7 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
     }
   });
 
-  await t.test("dropping onto the workspace adds files once and Chinese review labels stay translated", async (t) => {
+  await t.test("bounded drop boxes add files once and Chinese review labels stay translated", async (t) => {
     const root = tmpDir("ui-full-drop");
     const files = [];
     for (let i = 0; i < 4; i++) files.push(await photo(root, `a-${i}.jpg`));
@@ -644,22 +646,27 @@ test("Modify reviews loose files and folders with the detailed per-file editor",
         el.dispatchEvent(new DragEvent(event, { bubbles: true, cancelable: true, dataTransfer }));
       }, { file, event });
     }
-    await drag(".self-editor", files[0], "dragenter");
-    assert.equal(await page.locator(".self-editor.over .self-drop-hint").isVisible(), true);
-    await drag(".self-editor", files[0], "dragleave");
-    assert.equal(await page.locator(".self-drop-hint").isVisible(), false);
-    await drag(".self-editor", files[0], "drop");
+    await drag(".drop", files[0], "dragenter");
+    assert.equal(await page.locator(".drop.over").isVisible(), true);
+    await drag(".drop", files[0], "dragleave");
+    assert.equal(await page.locator(".drop.over").count(), 0);
+    await drag(".drop", files[0], "drop");
     await currentFile(page, "a-0.jpg");
+    const loadedDrop = await page.locator(".drop").boundingBox();
+    assert.ok(loadedDrop.width <= 600.5 && loadedDrop.height >= 87.5 && loadedDrop.height <= 100, "loaded review inputs remain a taller, bounded drop box");
     await page.getByRole("button", { name: /Everything follows Modified/ }).click();
-    for (const [i, selector] of [[1, ".stage-view"], [2, ".bt-side"], [3, ".bt-list"]]) {
-      await drag(selector, files[i], "dragenter");
-      assert.equal(await page.locator(".self-drop-hint").isVisible(), true);
-      await drag(selector, files[i], "drop");
+    for (const selector of [".stage-view", ".bt-side", ".self-editor"]) await drag(selector, files[1], "drop");
+    await page.waitForTimeout(200);
+    assert.equal(scans.length, 1, "the preview and date cards are not drop targets");
+    for (const i of [1, 2, 3]) {
+      await drag(".drop", files[i], "dragenter");
+      assert.equal(await page.locator(".drop.over").isVisible(), true);
+      await drag(".drop", files[i], "drop");
       await page.locator(".stage-bar").filter({ hasText: `1 of ${i + 1}` }).waitFor();
-      assert.equal(await page.locator(".self-drop-hint").isVisible(), false);
+      assert.equal(await page.locator(".drop.over").count(), 0);
       assert.match(await page.locator(".bt-choice.on").textContent(), /Everything follows Modified/);
     }
-    assert.equal(scans.length, 4, "nested drop surfaces never process a drop twice");
+    assert.equal(scans.length, 4, "each drop is processed once");
     await page.evaluate(() => MF.go("settings"));
     await page.getByRole("radio", { name: "简体中文", exact: true }).click();
     await page.getByRole("radio", { name: "12 小时制（上午／下午）", exact: true }).click();

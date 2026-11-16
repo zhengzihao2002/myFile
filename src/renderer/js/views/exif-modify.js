@@ -401,8 +401,7 @@
         editor.openPaths(paths, { restore });
       },
     });
-    const el = h("div.stack.self-editor", drop.el, editorBox, h("div.self-drop-hint", icon("plus"), h("b", "Drop to add files or folders")));
-    drop.bindDropTarget(el);
+    const el = h("div.stack.self-editor", drop.el, editorBox);
     return {
       el,
       clear: () => { ++resumeToken; pendingRestore = null; drop.clear(); },
